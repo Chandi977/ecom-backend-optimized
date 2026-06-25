@@ -201,7 +201,10 @@ export const getProductById = async (req: IAuthRequest, res: Response): Promise<
   try {
     const data = await Product.findOne({ _id: req.params.id }).populate(PRODUCT_POPULATE_PATHS).exec();
     if (!data) { res.status(404).json(commonResponse('Product not found', false)); return; }
-    const productData = flattenProductCatalog(data) as Record<string, unknown>;
+    // Admin edit source: return the product's OWN values (no category inheritance
+    // backfill) so blank fields stay blank (= "inherit from category") and saving
+    // never re-persists an inherited value as a per-product override.
+    const productData = flattenProductCatalog(data, { inherit: false }) as Record<string, unknown>;
     productData.images = await processImages(productData.images as any[], IMAGE_SIGN_OPTIONS);
     productData.category_overview_fields = await getCategoryOverviewFields(getCategoryIdFromProduct(productData.category));
     res.status(200).json(commonResponse('Product found', true, productData));

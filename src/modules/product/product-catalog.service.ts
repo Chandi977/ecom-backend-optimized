@@ -205,7 +205,15 @@ const stripSidecarProductRef = (value: unknown): Record<string, unknown> | undef
   return out;
 };
 
-export const flattenProductCatalog = (product: unknown): Record<string, unknown> | undefined => {
+export const flattenProductCatalog = (
+  product: unknown,
+  options: { inherit?: boolean } = {},
+): Record<string, unknown> | undefined => {
+  // `inherit` (default true) backfills category/sub-category attributes for
+  // display. Admin edit fetches pass `inherit: false` so the form receives the
+  // product's OWN values only (blank = "inherit from category"), and never
+  // re-persists an inherited value as a product-level override.
+  const { inherit = true } = options;
   if (!product) return undefined;
   const plain = typeof (product as any).toObject === 'function'
     ? (product as any).toObject()
@@ -263,8 +271,10 @@ export const flattenProductCatalog = (product: unknown): Record<string, unknown>
     }
   };
 
-  inheritFrom(stripSidecarProductRef(plain.sub_category));
-  inheritFrom(stripSidecarProductRef(plain.category));
+  if (inherit) {
+    inheritFrom(stripSidecarProductRef(plain.sub_category));
+    inheritFrom(stripSidecarProductRef(plain.category));
+  }
 
   return plain;
 };
