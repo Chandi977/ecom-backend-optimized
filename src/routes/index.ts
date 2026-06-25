@@ -1,0 +1,44 @@
+import { Router } from 'express';
+import categoryRouter from '../modules/category/category.route';
+import subCategoryRouter from '../modules/subcategory/subcategory.route';
+import brandRouter from '../modules/brand/brand.route';
+import productRouter from '../modules/product/product.route';
+import authRouter from '../modules/auth/auth.route';
+import dealRouter from '../modules/deal/deal.route';
+import cartRouter from '../modules/cart/cart.route';
+import orderRouter from '../modules/order/order.route';
+import customerRouter from '../modules/customer/customer.route';
+import customForm from '../modules/custom-packaging/custom-packaging.route';
+import contactForm from '../modules/contact-form/contact-form.route';
+import subscriptionOrder from '../modules/subscription-order/subscription-order.route';
+import pincodeRouter from '../modules/pincode/pincode.route';
+import notify from '../modules/notify/notify.route';
+import resetPassword from '../modules/password-reset/password-reset.route';
+import coupon from '../modules/coupon/coupon.route';
+import wishlistRouter from '../modules/wishlist/wishlist.route';
+import appVersion from '../modules/app-version/app-version.route';
+import healthRouter from '../modules/health/health.route';
+
+const rootRouter = Router();
+
+rootRouter.use(categoryRouter);
+rootRouter.use(subCategoryRouter);
+rootRouter.use(brandRouter);
+rootRouter.use(productRouter);
+rootRouter.use(authRouter);
+rootRouter.use(dealRouter);
+rootRouter.use(cartRouter);
+rootRouter.use(orderRouter);
+rootRouter.use(customerRouter);
+rootRouter.use(customForm);
+rootRouter.use(contactForm);
+rootRouter.use(subscriptionOrder);
+rootRouter.use(pincodeRouter);
+rootRouter.use(notify);
+rootRouter.use(resetPassword);
+rootRouter.use(coupon);
+rootRouter.use(wishlistRouter);
+rootRouter.use(appVersion);
+rootRouter.use(healthRouter);
+
+export default rootRouter;
