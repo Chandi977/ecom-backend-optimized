@@ -106,8 +106,11 @@ const productSchema = new Schema<IProductDocument>(
       default: [],
     },
     gst: {
+      // No default. Products inherit GST from sub_category -> category at order
+      // time (gst-calculator) and at response time (flattenProductCatalog), so the
+      // same rate is no longer stored on every product document. An explicit
+      // per-product gst still overrides the inherited rate.
       type: Number,
-      default: 18,
     },
     description: { type: String },
     aboutItem: { type: String },

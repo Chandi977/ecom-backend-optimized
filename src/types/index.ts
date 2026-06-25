@@ -198,6 +198,18 @@ export interface IOverviewField {
   visible?: boolean;
 }
 
+// Definition of a single spec field a category exposes. Drives the admin spec
+// form and the storefront spec rendering, replacing hard-coded spec schemas.
+export interface ISpecSchemaField {
+  key: string;
+  label: string;
+  type: 'number' | 'select' | 'text';
+  options?: string[];
+  required?: boolean;
+  unit?: string;
+  default_value?: unknown;
+}
+
 export interface ICategory {
   _id: string;
   name: string;
@@ -209,6 +221,13 @@ export interface ICategory {
   overview_fields?: IOverviewField[];
   // Category-level storefront visibility defaults for common product-page fields.
   field_visibility?: Record<string, boolean>;
+  // Category-wide attribute defaults (key -> value) inherited by every product in
+  // the category unless the product sets its own value. Eliminates per-product
+  // repetition of category-constant attributes. GST keeps its own `gst` field.
+  common_attributes?: Record<string, unknown>;
+  // Spec field definitions this category uses (label, type, options, unit,
+  // default). Drives the admin spec form and storefront spec rendering.
+  spec_schema?: ISpecSchemaField[];
   subCategories?: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -221,6 +240,9 @@ export interface ISubCategory {
   category?: string;
   sub_category_id?: string;
   gst?: number;
+  // Optional sub-category-level attribute overrides; take precedence over the
+  // parent category's common_attributes during product attribute inheritance.
+  common_attributes?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

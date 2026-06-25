@@ -236,6 +236,36 @@ export const flattenProductCatalog = (product: unknown): Record<string, unknown>
     assignIfEmpty(plain, 'overview_fields', seo.overview_fields);
   }
 
+  // --- Category / sub-category attribute inheritance ---------------------------
+  // Backfill any category-wide attribute the product (and its sidecars) left
+  // blank, from the most specific owner to the least: sub_category -> category.
+  // assignIfEmpty guarantees explicit per-product values always win, so the flat
+  // catalog-filter fields stay correct. `category` / `sub_category` are populated
+  // by PRODUCT_POPULATE_PATHS; when left as ObjectIds, inheritance is skipped.
+  const inheritFrom = (owner: Record<string, unknown> | undefined): void => {
+    if (!owner) return;
+    // gst is a first-class field on the owner, not part of common_attributes.
+    assignIfEmpty(plain, 'gst', owner.gst);
+    const common = owner.common_attributes;
+    if (common && typeof common === 'object' && !Array.isArray(common)) {
+      Object.entries(common as Record<string, unknown>).forEach(([key, value]) =>
+        assignIfEmpty(plain, key, value),
+      );
+    }
+    // Spec-field default values declared on the schema fill any field still empty.
+    if (Array.isArray(owner.spec_schema)) {
+      owner.spec_schema.forEach((field) => {
+        const def = field as Record<string, unknown>;
+        if (typeof def?.key === 'string' && isPresent(def.default_value)) {
+          assignIfEmpty(plain, def.key, def.default_value);
+        }
+      });
+    }
+  };
+
+  inheritFrom(stripSidecarProductRef(plain.sub_category));
+  inheritFrom(stripSidecarProductRef(plain.category));
+
   return plain;
 };
 

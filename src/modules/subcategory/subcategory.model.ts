@@ -6,6 +6,7 @@ export interface ISubCategoryDocument extends Document {
   category?: string;
   sub_category_id?: string;
   gst?: number;
+  common_attributes?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,6 +17,9 @@ const subCategorySchema = new Schema<ISubCategoryDocument>({
   category: { type: Schema.Types.ObjectId, ref: 'Category' },
   sub_category_id: { type: String },
   gst: { type: Number, min: 0 },
+  // Optional sub-category-level attribute overrides. Resolved ahead of the parent
+  // category's common_attributes during product attribute inheritance.
+  common_attributes: { type: Schema.Types.Mixed, default: {} },
 }, {
   timestamps: true,
 });

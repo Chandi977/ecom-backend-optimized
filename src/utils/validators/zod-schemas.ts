@@ -359,6 +359,19 @@ export const addBuyItWithProductsSchema = z.object({
 });
 
 // ─── Category ───────────────────────────────────────────────────────
+// A single spec-field definition on a category's spec_schema. Kept permissive
+// (label/type optional, default_value unknown) — the controller's
+// sanitizeSpecSchema fills gaps and enforces the canonical shape.
+const specSchemaFieldSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().optional(),
+  type: z.enum(['number', 'select', 'text']).optional(),
+  options: z.array(z.string()).optional(),
+  required: coerceBool.optional(),
+  unit: z.string().optional(),
+  default_value: z.unknown().optional(),
+});
+
 export const createCategorySchema = z.object({
   name: z.string().min(1, 'Category name is required'),
   category_id: z.string().optional(),
@@ -366,6 +379,9 @@ export const createCategorySchema = z.object({
   meta_description: z.string().optional(),
   overview_fields: z.array(z.object({ label: z.string().min(1) })).optional(),
   gst: coerceNum.optional(),
+  field_visibility: z.record(z.string(), z.unknown()).optional(),
+  common_attributes: z.record(z.string(), z.unknown()).optional(),
+  spec_schema: z.array(specSchemaFieldSchema).optional(),
 });
 
 export const updateCategorySchema = z.object({
@@ -376,6 +392,9 @@ export const updateCategorySchema = z.object({
   meta_description: z.string().optional(),
   overview_fields: z.array(z.object({ label: z.string().min(1) })).optional(),
   gst: coerceNum.optional(),
+  field_visibility: z.record(z.string(), z.unknown()).optional(),
+  common_attributes: z.record(z.string(), z.unknown()).optional(),
+  spec_schema: z.array(specSchemaFieldSchema).optional(),
 });
 
 export const deleteCategorySchema = z.object({

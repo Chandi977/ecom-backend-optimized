@@ -6,6 +6,7 @@ import slugify from 'slugify';
 
 import { sanitizeOverviewFields } from '../../utils/overview-fields';
 import { sanitizeFieldVisibility } from '../../utils/field-visibility';
+import { sanitizeCommonAttributes, sanitizeSpecSchema } from '../../utils/category-attributes';
 import { IAuthRequest } from '../../types';
 import { parseOptionalGstRate } from '../../utils/gst-rate';
 
@@ -29,7 +30,7 @@ const attachSubCategories = async (categories: Array<Record<string, unknown>>) =
 
 export const createCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility } = req.body;
+    const { name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema } = req.body;
 
     const category = new Category({
       name,
@@ -40,6 +41,8 @@ export const createCategory = async (req: IAuthRequest, res: Response): Promise<
       meta_description,
       overview_fields: sanitizeOverviewFields(overview_fields),
       field_visibility: sanitizeFieldVisibility(field_visibility),
+      common_attributes: sanitizeCommonAttributes(common_attributes),
+      spec_schema: sanitizeSpecSchema(spec_schema),
     });
     const data = await category.save();
     res.status(data ? 201 : 400).json(commonResponse(data ? 'Category created' : 'Unable to create', !!data, data || undefined));
@@ -63,7 +66,7 @@ export const getCategory = async (req: IAuthRequest, res: Response): Promise<voi
 
 export const updateCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { id, name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility } = req.body;
+    const { id, name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema } = req.body;
     const update: Record<string, unknown> = {
       name,
       slug: slugify(name),
@@ -75,6 +78,8 @@ export const updateCategory = async (req: IAuthRequest, res: Response): Promise<
     const parsedGst = parseOptionalGstRate(gst);
     if (parsedGst !== undefined) update.gst = parsedGst;
     if (field_visibility !== undefined) update.field_visibility = sanitizeFieldVisibility(field_visibility);
+    if (common_attributes !== undefined) update.common_attributes = sanitizeCommonAttributes(common_attributes);
+    if (spec_schema !== undefined) update.spec_schema = sanitizeSpecSchema(spec_schema);
     const data = await Category.findOneAndUpdate({ _id: id }, update).exec();
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Category updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('An error occurred', false)); }
