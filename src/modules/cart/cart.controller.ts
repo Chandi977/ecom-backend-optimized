@@ -4,9 +4,25 @@ import { commonResponse, returnjson } from '../../utils/response';
 import Product from '../product/product.model';
 import { processImages } from '../../utils/s3';
 import { IAuthRequest } from '../../types';
+import { calculateCartTotals } from '../../services/cart-calculation.service';
 
 // Cart line-items render small thumbnails — serve resized derivatives.
 const IMAGE_SIGN_OPTIONS = { expiresIn: 86400, width: 400 };
+
+export const calculateCart = async (req: IAuthRequest, res: Response): Promise<void> => {
+  try {
+    const { items, shippingCost, coupon } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json(commonResponse('Items required', false));
+      return;
+    }
+    const result = await calculateCartTotals(items, Number(shippingCost) || 0, coupon || null);
+    res.status(200).json(commonResponse('Cart calculated', true, result));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Calculation error';
+    res.status(400).json(commonResponse(message, false));
+  }
+};
 
 export const AddtoCart = async (req: IAuthRequest, res: Response): Promise<void> => {
   const { product } = req.body;
@@ -33,12 +49,11 @@ export const AddtoCart = async (req: IAuthRequest, res: Response): Promise<void>
         const temp = [...products, product];
         const total_amount = temp.reduce((acc: number, curr: any) => acc + Number(curr.price) * Number(curr.quantity), 0);
         const totalPackWeight = temp.reduce((acc: number, curr: any) => acc + (Number(curr.totalPackWeight) || 0), 0);
-        const packSize = temp.reduce((acc, curr) => acc + (Number(curr.packSize) || 0), 0);
 
         const updated = await Cart.findOneAndUpdate(
           { user },
           {
-            products: temp, total_amount, totalPackWeight, packSize,
+            products: temp, total_amount, totalPackWeight, packSize: 0,
             discount_amount: 0, appliedCoupon: false, couponType: '', appliedCouponName: '',
             $unset: { totalDiscountPercentage: '', maxCapDiscount: '', totalDiscountPrice: '', shippingDiscountPrice: '', shippingDiscountPercentage: '' },
           },
@@ -162,11 +177,11 @@ export const updateAllDiscount = async (req: IAuthRequest, res: Response): Promi
 
 export const updateProductTypeAllCoupon = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { appliedCoupon, appliedCouponName, discount_amount, couponType, maxCapDiscount, couponUse } = req.body;
+    const { appliedCoupon, appliedCouponName, discount_amount, couponType, maxCapDiscount, couponUse, allDiscountPercentage, allDiscountPrice } = req.body;
     const user = req.user!;
     const data = await Cart.findOneAndUpdate(
       { user },
-      { appliedCoupon, appliedCouponName, discount_amount, maxCapDiscount, couponUse },
+      { appliedCoupon, appliedCouponName, discount_amount, maxCapDiscount, couponUse, allDiscountPercentage, allDiscountPrice },
       { new: true }
     ).exec();
     res.status(201).json(commonResponse('Cart updated', true, data));
@@ -255,9 +270,23 @@ export const emptyCart = async (req: IAuthRequest, res: Response): Promise<void>
 
 export const removeCoupon = async (req: IAuthRequest, res: Response): Promise<void> => {
   const user = req.user!;
+  const cart = await Cart.findOne({ user }).exec();
+  if (!cart) { res.status(404).json(commonResponse('Cart not found', false)); return; }
+
+  const products = returnjson(cart.products) as Array<Record<string, unknown>>;
+  const restored = products.map((p) => {
+    const { discountPrice, ...rest } = p;
+    return rest;
+  });
+  const total_amount = restored.reduce(
+    (acc: number, curr: any) => acc + Number(curr.price) * Number(curr.quantity), 0,
+  );
+
   const data = await Cart.findOneAndUpdate(
     { user },
     {
+      products: restored,
+      total_amount,
       appliedCoupon: false, appliedCouponName: '', couponType: '', discount_amount: 0,
       $unset: { totalDiscountPercentage: '', maxCapDiscount: '', totalDiscountPrice: '', shippingDiscountPrice: '', shippingDiscountPercentage: '', couponUse: '' },
     },

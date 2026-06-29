@@ -26,6 +26,8 @@ export interface ICartDocument extends Document {
   totalDiscountPercentage?: number;
   shippingDiscountPrice?: number;
   shippingDiscountPercentage?: number;
+  allDiscountPercentage?: number;
+  allDiscountPrice?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -56,6 +58,8 @@ const cartSchema = new Schema<ICartDocument>({
   totalDiscountPercentage: { type: Number },
   shippingDiscountPrice: { type: Number },
   shippingDiscountPercentage: { type: Number },
+  allDiscountPercentage: { type: Number },
+  allDiscountPrice: { type: Number },
 }, {
   timestamps: true,
 });

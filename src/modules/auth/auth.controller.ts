@@ -5,6 +5,7 @@ import { commonResponse } from '../../utils/response';
 import { validateEmail } from '../../utils/validators';
 import { hashPassword, comparePassword } from '../../utils/validators/password-hash';
 import { IAuthPayload, IAuthRequest } from '../../types';
+import { isFullAccessRole } from '../../config/rbac';
 import { logger } from '../../utils/logger';
 import { addJob, emailQueue } from '../../queue';
 import {
@@ -101,12 +102,17 @@ export const signup = async (req: IAuthRequest, res: Response): Promise<void> =>
       return;
     }
 
+    // Security: only an authenticated full-access admin may assign a privileged role.
+    // Public/anonymous signups (and restricted roles) always create a plain 'user',
+    // closing the privilege-escalation hole where the role was trusted from the body.
+    const assignedRole = isFullAccessRole(req.userRole) && role ? role : 'user';
+
     const verificationToken = generateVerificationToken();
     const hashedPassword = await hashPassword(password);
 
     const newUser = new User({
       first_name, last_name, email_address, password: hashedPassword,
-      mobile_number, role, gender, user_id,
+      mobile_number, role: assignedRole, gender, user_id,
       verification_token: verificationToken,
       verification_token_expiry: new Date(Date.now() + 3600000),
     });

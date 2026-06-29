@@ -8,6 +8,8 @@ export { default as SEO } from '../modules/product/seo.model';
 export { default as Category } from '../modules/category/category.model';
 export { default as SubCategory } from '../modules/subcategory/subcategory.model';
 export { default as Brand } from '../modules/brand/brand.model';
+export { default as AttributeDefinition } from '../modules/attribute/attribute.model';
+export { default as ProductVariant } from '../modules/product-variant/product-variant.model';
 export { default as Cart } from '../modules/cart/cart.model';
 export { default as Order } from '../modules/order/order.model';
 export { default as Wishlist } from '../modules/wishlist/wishlist.model';
@@ -22,3 +24,9 @@ export { default as ContactForm } from '../modules/contact-form/contact-form.mod
 export { default as SubscriptionOrder } from '../modules/subscription-order/subscription-order.model';
 export { default as AppVersion } from '../modules/app-version/app-version.model';
 export { default as PasswordReset } from '../modules/password-reset/password-reset.model';
+export { default as ActivityLog } from '../modules/activity-log/activity-log.model';
+export { SearchQueryLog, ProductViewLog } from '../modules/demand-signal/demand-signal.model';
+export { default as NotificationTemplate } from '../modules/notification/notification-template.model';
+export { default as Notification } from '../modules/notification/notification.model';
+export { default as NotificationCampaign } from '../modules/notification/notification-campaign.model';
+export { default as UserDevice } from '../modules/notification/user-device.model';

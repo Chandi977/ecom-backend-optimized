@@ -2,6 +2,8 @@ import { Worker, ConnectionOptions } from 'bullmq';
 import { logger } from '../utils/logger';
 import { bullConnection } from '../utils/redis';
 import { sendBackInStockNotifications } from '../services/notification.service';
+import { sendPush } from '../modules/notification/push.service';
+import { dispatch, IDispatchOptions } from '../modules/notification/custom-notification.service';
 
 const connection: ConnectionOptions = bullConnection as ConnectionOptions;
 
@@ -12,7 +14,15 @@ export const startNotificationWorker = (): Worker => {
       case 'send-back-in-stock':
         return sendBackInStockNotifications(String(job.data.productId));
       case 'send-push-notification':
-        throw new Error('Push notification provider is not configured');
+        // Direct push to explicit device tokens.
+        return sendPush(job.data.tokens as string[], {
+          title: job.data.title as string,
+          body: job.data.body as string,
+          data: job.data.data as Record<string, unknown>,
+        });
+      case 'send-custom-notification':
+        // Fan-out broadcast: in-app feed + push to an audience.
+        return dispatch(job.data as IDispatchOptions);
       default:
         logger.warn(`Unknown notification job type: ${job.name}`);
     }

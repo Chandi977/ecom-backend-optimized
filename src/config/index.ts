@@ -62,6 +62,15 @@ export const config = {
     password: process.env.REDIS_PASSWORD || undefined,
   },
 
+  // Firebase Cloud Messaging service-account credentials for mobile push.
+  // Leave empty to keep push disabled (the in-app feed still works). When all
+  // three are set, push.service activates FCM via the optional firebase-admin dep.
+  fcm: {
+    projectId: process.env.FCM_PROJECT_ID || '',
+    clientEmail: process.env.FCM_CLIENT_EMAIL || '',
+    privateKey: process.env.FCM_PRIVATE_KEY || '',
+  },
+
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
     max: parseInt(process.env.RATE_LIMIT_MAX || '1200', 10),

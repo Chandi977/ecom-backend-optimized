@@ -1,10 +1,8 @@
 import { Response } from 'express';
 import crypto from 'crypto';
-import mongoose from 'mongoose';
 import Razorpay from 'razorpay';
 import Order from '../order/order.model';
 import Product from '../product/product.model';
-import Counter from '../counter/counter.model';
 import User from '../auth/auth.model';
 import { config } from '../../config';
 import { commonResponse } from '../../utils/response';
@@ -16,6 +14,7 @@ import { logger } from '../../utils/logger';
 import { addJob, emailQueue, orderQueue } from '../../queue';
 import { resolvePaymentStatus, deriveOrderStatus } from '../../services/order.service';
 import { IStockItem, toStockItems } from '../../services/stock.service';
+import { notifyUserEvent } from '../notification/custom-notification.service';
 
 if (!config.razorpay.keyId || !config.razorpay.keySecret) {
   throw new Error('Razorpay env vars missing');
@@ -37,14 +36,12 @@ const normalizePaymentStatus = (value?: string): string | null => {
   return Array.from(PAYMENT_STATUS_SET).find((s) => s.toLowerCase() === t) || null;
 };
 
-const getNextOrderId = async (session?: mongoose.ClientSession): Promise<string> => {
-  const counter = await Counter.findOneAndUpdate(
-    { name: 'order' },
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true, session }
-  );
-  return `PI-${counter.seq}`;
-};
+// Orders are created with a throwaway temporary id; the real sequential "PI-<n>"
+// number is only minted once payment is confirmed (see finalizeVerifiedPayment).
+// The TMP- prefix deliberately does not match the /^PI-\d+$/ pattern used to scan
+// for the highest existing PI- number.
+const generateTempOrderId = (): string =>
+  `TMP-${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`;
 
 const verifyRazorpayPayment = async (payload: Record<string, unknown>, existingOrder: Record<string, unknown>) => {
   const { razorpayPaymentId, razorpayOrderId, razorpaySignature } = payload;
@@ -127,13 +124,32 @@ export const createOrder = async (req: IAuthRequest, res: Response): Promise<voi
       ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}),
     };
 
-    const orderId = await getNextOrderId();
-    const order = new Order({ orderId, ...orderPayload });
-    const data = await order.save();
+    const maxRetries = 3;
+    let data: Record<string, unknown> | null = null;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const orderId = generateTempOrderId();
+      const order = new Order({ orderId, ...orderPayload });
+      try {
+        data = (await order.save()).toObject();
+        break;
+      } catch (saveErr: unknown) {
+        const se = saveErr as Error & { code?: number; keyPattern?: Record<string, unknown> };
+        if (se.code === 11000 && se.keyPattern?.orderId) {
+          logger.warn(`orderId ${orderId} collision, retrying (${attempt + 1}/${maxRetries})`);
+          if (attempt === maxRetries - 1) throw se;
+          continue;
+        }
+        throw se;
+      }
+    }
 
     if (data) {
-      await addJob(emailQueue, 'order-placed', { to: data.email, subject: 'Your Order has been placed', order: data.toObject() });
+      await addJob(emailQueue, 'order-placed', { to: data.email, subject: 'Your Order has been placed', order: data });
       await addJob(orderQueue, 'process-new-order', { orderId: data._id });
+      // In-app/push notification to the order owner (no-op for guest orders).
+      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-placed-push',
+        { name: data.name, orderId: data.orderId, status: data.status },
+        { type: 'order', orderId: String(data._id) });
       res.status(201).json(commonResponse('Order created', true, data));
     } else {
       res.status(500).json(commonResponse('Failed to create order', false));
@@ -145,7 +161,11 @@ export const createOrder = async (req: IAuthRequest, res: Response): Promise<voi
       if (existing) { res.status(200).json(commonResponse('Order already created', true, existing)); return; }
     }
     logger.error('Create order error', { error: err.message });
-    res.status(500).json(commonResponse('Internal server error', false));
+    if (err.name === 'MissingGstError') {
+      res.status(400).json(commonResponse(err.message, false));
+    } else {
+      res.status(500).json(commonResponse('Internal server error', false));
+    }
   }
 };
 
@@ -196,6 +216,9 @@ export const updateOrderTracking = async (req: IAuthRequest, res: Response): Pro
     const data = await Order.findOneAndUpdate({ _id: id }, { trackingId, deliveryPartner, status: 'Dispatched' }, { new: true }).exec();
     if (data) {
       await addJob(emailQueue, 'order-shipped', { to: data.email, subject: 'Your Order has been shipped', order: data.toObject() });
+      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-shipped-push',
+        { name: data.name, orderId: data.orderId, trackingId: data.trackingId, deliveryPartner: data.deliveryPartner },
+        { type: 'order', orderId: String(data._id) });
     }
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Tracking updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
@@ -207,6 +230,9 @@ export const updateOrderDelivered = async (req: IAuthRequest, res: Response): Pr
     const data = await Order.findOneAndUpdate({ _id: id }, { deliveredDate, status }, { new: true }).exec();
     if (data) {
       await addJob(emailQueue, 'order-delivered', { to: data.email, subject: 'Your Order has been delivered', order: data.toObject() });
+      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-delivered-push',
+        { name: data.name, orderId: data.orderId },
+        { type: 'order', orderId: String(data._id) });
     }
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Delivery date updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
@@ -228,7 +254,7 @@ export const getOrdersByEmail = async (req: IAuthRequest, res: Response): Promis
       res.status(403).json(commonResponse('Forbidden', false)); return;
     }
 
-    const orders = await Order.find(filter).populate('items.product').lean().exec();
+    const orders = await Order.find(filter).sort({ createdAt: -1 }).populate('items.product').lean().exec();
     await attachSignedImagesToOrders(orders as any, IMAGE_SIGN_OPTIONS);
     res.status(orders.length > 0 ? 200 : 404).json(orders.length > 0
       ? { success: true, message: 'Orders found', data: orders }
@@ -290,7 +316,16 @@ export const updatePaymentStatus = async (req: IAuthRequest, res: Response): Pro
     if (order.user?.toString() !== req.user && req.userRole !== 'admin') { res.status(403).json(commonResponse('Forbidden', false)); return; }
 
     if (normalized === 'Payment Verified') {
-      await verifyRazorpayPayment({ razorpayPaymentId, razorpayOrderId, razorpaySignature }, order.toObject());
+      const isAdmin = req.userRole === 'admin';
+      if (razorpayPaymentId) {
+        // Online payment: always cryptographically verify against Razorpay.
+        await verifyRazorpayPayment({ razorpayPaymentId, razorpayOrderId, razorpaySignature }, order.toObject());
+      } else if (!isAdmin) {
+        // No Razorpay payment to verify and the caller is not an admin: refuse, so
+        // a customer can never self-verify their own order without actually paying.
+        throw new Error('Missing payment id');
+      }
+      // else: a trusted admin is manually confirming a non-Razorpay payment (e.g. UTR).
     }
 
     const requestedVerification = normalized === 'Payment Verified';

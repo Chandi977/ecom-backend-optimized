@@ -22,6 +22,7 @@ import {
   flattenProductCatalog,
   flattenProductCatalogList,
   syncProductCatalogRefs,
+  resolveCategoryLink,
 } from './product-catalog.service';
 
 const IMAGE_SIGN_OPTIONS: IImageSignOptions = { expiresIn: 3600 };
@@ -153,6 +154,9 @@ export const createProduct = async (req: IAuthRequest, res: Response): Promise<v
   try {
     const body = req.body;
     const legacyPayload = buildLegacyProductPayload(body);
+    // Keep the inheritance chain intact: derive the category from the
+    // sub-category's parent when the caller didn't supply one.
+    const linkedCategory = await resolveCategoryLink(body.category, body.sub_category);
 
     const product = new Product({
       brand: normalizeObjectId(body.brand),
@@ -161,7 +165,7 @@ export const createProduct = async (req: IAuthRequest, res: Response): Promise<v
       price: body.price, priceList: body.priceList,
       gst: body.gst,
       meta_title: body.meta_title, meta_description: body.meta_description,
-      category: normalizeObjectId(body.category),
+      category: normalizeObjectId(linkedCategory),
       sub_category: normalizeObjectId(body.sub_category),
       images: body.images, slug: normalizeSlugValue(body.slug ?? body.name),
       product_id: body.product_id,
@@ -250,7 +254,10 @@ export const updateProduct = async (req: IAuthRequest, res: Response): Promise<v
     const update: Record<string, unknown> = buildLegacyProductPayload(body);
     if (body.slug || body.name) update.slug = normalizeSlugValue(body.slug ?? body.name);
     if (body.brand) update.brand = normalizeObjectId(body.brand);
-    if (body.category) update.category = normalizeObjectId(body.category);
+    // Keep category aligned with the sub-category's parent so inheritance holds
+    // even if only a sub-category was sent.
+    const linkedCategory = await resolveCategoryLink(body.category, body.sub_category);
+    if (linkedCategory) update.category = normalizeObjectId(linkedCategory);
     if (body.sub_category) update.sub_category = normalizeObjectId(body.sub_category);
     if (body.overview_fields) update.overview_fields = sanitizeOverviewFields(body.overview_fields, { includeValue: true });
     if (body.field_visibility !== undefined) update.field_visibility = sanitizeFieldVisibility(body.field_visibility);

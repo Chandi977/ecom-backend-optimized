@@ -6,6 +6,9 @@ export interface IUserDocument extends Omit<IUser, '_id'>, Document {}
 const addressSchema = new Schema({
   name: { type: String },
   phone: { type: String },
+  mobile: { type: String },
+  email: { type: String },
+  gstin: { type: String },
   address: { type: String },
   town: { type: String },
   state: { type: String },

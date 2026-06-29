@@ -10,10 +10,12 @@ import { DBconnection } from "./database";
 import { commonResponse } from "./utils/response";
 import { logger } from "./utils/logger";
 import rootRouter from "./routes/index";
+import { activityLogger } from "./middleware/activity-logger";
 import { setupSwagger } from "./swagger";
 import { initializeQueues } from "./queue";
 import { IAuthRequest } from "./types";
 import { cleanupAbandonedOrders } from "./modules/order/order.controller";
+import { seedTemplates } from "./modules/notification/notification-template.service";
 
 const app: Application = express();
 const API_VERSION = "v1";
@@ -135,6 +137,8 @@ const startServer = async (): Promise<void> => {
   try {
     await DBconnection();
     await initializeQueues();
+    // Seed default notification templates so the admin can edit them (idempotent).
+    await seedTemplates();
 
     const trustProxy = parseTrustProxy(process.env.TRUST_PROXY, config.nodeEnv);
     app.set("trust proxy", trustProxy);
@@ -187,6 +191,9 @@ const startServer = async (): Promise<void> => {
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
+
+    // Audit trail + API observability. Non-blocking; reads req.user set by route auth.
+    app.use(activityLogger);
 
     app.get("/", (_req: Request, res: Response) => {
       res.send(

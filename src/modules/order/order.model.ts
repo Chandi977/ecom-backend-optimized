@@ -8,6 +8,7 @@ export interface IOrderItemDocument {
   gst?: number;
   gstAmount?: number;
   totalPrice?: number;
+  hsn_code?: string;
 }
 
 export interface IOrderDocument extends Document {
@@ -61,6 +62,7 @@ const orderItemSchema = new Schema({
   gst: { type: Number },
   gstAmount: { type: Number },
   totalPrice: { type: Number },
+  hsn_code: { type: String },
 }, { _id: false });
 
 const orderSchema = new Schema<IOrderDocument>({

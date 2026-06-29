@@ -61,6 +61,9 @@ export const editUserSchema = z.object({
   contact_address: z.array(z.object({
     name: z.string().optional(),
     phone: z.string().optional(),
+    mobile: z.string().optional(),
+    email: z.string().optional(),
+    gstin: z.string().optional(),
     address: z.string().optional(),
     town: z.string().optional(),
     state: z.string().optional(),
@@ -219,6 +222,8 @@ export const createProductSchema = z.object({
   material: z.string().optional(),
   color: z.string().optional(),
   hsn_code: z.string().optional(),
+  sac_code: z.string().optional(),
+  tax_category: z.string().optional(),
   delivery_time: z.string().optional(),
   length: coerceNum.optional(),
   width: coerceNum.optional(),
@@ -249,6 +254,7 @@ export const createProductSchema = z.object({
   slug: z.string().optional(),
   images: z.array(z.union([z.string(), z.object({ image: z.string().optional() })])).optional(),
   overview_fields: z.array(overviewFieldSchema).optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
   specification: productSpecificationInputSchema.optional(),
   pricing: pricingInputSchema.optional(),
   inventory: inventoryInputSchema.optional(),
@@ -274,6 +280,8 @@ export const updateProductSchema = z.object({
   material: z.string().optional(),
   color: z.string().optional(),
   hsn_code: z.string().optional(),
+  sac_code: z.string().optional(),
+  tax_category: z.string().optional(),
   delivery_time: z.string().optional(),
   length: coerceNum.optional(),
   width: coerceNum.optional(),
@@ -304,6 +312,7 @@ export const updateProductSchema = z.object({
   slug: z.string().optional(),
   images: z.array(z.union([z.string(), z.object({ image: z.string().optional() })])).optional(),
   overview_fields: z.array(overviewFieldSchema).optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
   specification: productSpecificationInputSchema.optional(),
   pricing: pricingInputSchema.optional(),
   inventory: inventoryInputSchema.optional(),
@@ -375,6 +384,10 @@ const specSchemaFieldSchema = z.object({
 export const createCategorySchema = z.object({
   name: z.string().min(1, 'Category name is required'),
   category_id: z.string().optional(),
+  hsn_code: z.string().optional(),
+  sac_code: z.string().optional(),
+  tax_category: z.string().optional(),
+  delivery_time: z.string().optional(),
   meta_title: z.string().optional(),
   meta_description: z.string().optional(),
   overview_fields: z.array(z.object({ label: z.string().min(1) })).optional(),
@@ -388,6 +401,10 @@ export const updateCategorySchema = z.object({
   id: mongoId,
   name: z.string().optional(),
   category_id: z.string().optional(),
+  hsn_code: z.string().optional(),
+  sac_code: z.string().optional(),
+  tax_category: z.string().optional(),
+  delivery_time: z.string().optional(),
   meta_title: z.string().optional(),
   meta_description: z.string().optional(),
   overview_fields: z.array(z.object({ label: z.string().min(1) })).optional(),
@@ -407,6 +424,11 @@ export const createSubCategorySchema = z.object({
   category: z.string().optional(),
   sub_category_id: z.string().optional(),
   gst: coerceNum.optional(),
+  hsn_code: z.string().optional(),
+  sac_code: z.string().optional(),
+  tax_category: z.string().optional(),
+  delivery_time: z.string().optional(),
+  common_attributes: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const updateSubCategorySchema = z.object({
@@ -415,6 +437,11 @@ export const updateSubCategorySchema = z.object({
   category: z.string().optional(),
   sub_category_id: z.string().optional(),
   gst: coerceNum.optional(),
+  hsn_code: z.string().optional(),
+  sac_code: z.string().optional(),
+  tax_category: z.string().optional(),
+  delivery_time: z.string().optional(),
+  common_attributes: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const deleteSubCategorySchema = z.object({
@@ -437,6 +464,99 @@ export const updateBrandSchema = z.object({
 
 export const deleteBrandSchema = z.object({
   id: mongoId,
+});
+
+// ─── Attribute Definition ───────────────────────────────────────────
+const attributeTypeEnum = z.enum(['number', 'select', 'text', 'boolean']);
+
+export const createAttributeDefinitionSchema = z.object({
+  key: z.string().min(1, 'Attribute key is required'),
+  label: z.string().min(1, 'Attribute label is required'),
+  description: z.string().optional(),
+  type: attributeTypeEnum.optional(),
+  unit: z.string().optional(),
+  options: z.array(z.string()).optional(),
+  required: coerceBool.optional(),
+  searchable: coerceBool.optional(),
+  filterable: coerceBool.optional(),
+  sortable: coerceBool.optional(),
+  default_value: z.unknown().optional(),
+  categories: z.array(z.string()).optional(),
+  sub_categories: z.array(z.string()).optional(),
+  order: coerceNum.optional(),
+  isActive: coerceBool.optional(),
+});
+
+export const updateAttributeDefinitionSchema = z.object({
+  id: mongoId,
+  key: z.string().min(1).optional(),
+  label: z.string().min(1).optional(),
+  description: z.string().optional(),
+  type: attributeTypeEnum.optional(),
+  unit: z.string().optional(),
+  options: z.array(z.string()).optional(),
+  required: coerceBool.optional(),
+  searchable: coerceBool.optional(),
+  filterable: coerceBool.optional(),
+  sortable: coerceBool.optional(),
+  default_value: z.unknown().optional(),
+  categories: z.array(z.string()).optional(),
+  sub_categories: z.array(z.string()).optional(),
+  order: coerceNum.optional(),
+  isActive: coerceBool.optional(),
+});
+
+export const deleteAttributeDefinitionSchema = z.object({
+  id: z.union([mongoId, z.array(mongoId)]),
+});
+
+// ─── Product Variant ────────────────────────────────────────────────
+const variantDimensionsSchema = z.object({
+  length: coerceNum.optional(),
+  width: coerceNum.optional(),
+  height: coerceNum.optional(),
+  unit: z.string().optional(),
+}).partial();
+
+export const createProductVariantSchema = z.object({
+  product: mongoId,
+  sku: z.string().optional(),
+  barcode: z.string().optional(),
+  name: z.string().optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
+  weight: coerceNum.optional(),
+  pack_size: coerceNum.optional(),
+  dimensions: variantDimensionsSchema.optional(),
+  price: coerceNum.optional(),
+  original_price: coerceNum.optional(),
+  discount: coerceNum.optional(),
+  stock_quantity: coerceNum.optional(),
+  pack_weight: coerceNum.optional(),
+  isActive: coerceBool.optional(),
+  order: coerceNum.optional(),
+});
+
+export const updateProductVariantSchema = z.object({
+  id: mongoId,
+  product: z.string().optional(),
+  sku: z.string().optional(),
+  barcode: z.string().optional(),
+  name: z.string().optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
+  weight: coerceNum.optional(),
+  pack_size: coerceNum.optional(),
+  dimensions: variantDimensionsSchema.optional(),
+  price: coerceNum.optional(),
+  original_price: coerceNum.optional(),
+  discount: coerceNum.optional(),
+  stock_quantity: coerceNum.optional(),
+  pack_weight: coerceNum.optional(),
+  isActive: coerceBool.optional(),
+  order: coerceNum.optional(),
+});
+
+export const deleteProductVariantSchema = z.object({
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── Cart ───────────────────────────────────────────────────────────
@@ -762,4 +882,34 @@ export const updateAppVersionSchema = z.object({
   version: z.string().optional(),
   forceUpdate: coerceBool.optional(),
   updateMessage: z.string().optional(),
+});
+
+// ─── Notifications ──────────────────────────────────────────────────
+export const updateNotificationTemplateSchema = z.object({
+  subject: z.string().optional(),
+  body: z.string().optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  variables: z.array(z.string()).optional(),
+  isActive: coerceBool.optional(),
+});
+
+export const sendNotificationSchema = z.object({
+  audience: z.enum(['all', 'role', 'users']).optional(),
+  role: z.string().optional(),
+  userIds: z.array(z.string()).optional(),
+  title: z.string().min(1, 'Title is required'),
+  body: z.string().optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  // Opt-in: also send this broadcast to recipients' email inboxes.
+  email: coerceBool.optional(),
+});
+
+export const registerDeviceSchema = z.object({
+  token: z.string().min(1, 'token is required'),
+  platform: z.enum(['android', 'ios'], { message: 'Platform must be "android" or "ios"' }),
+});
+
+export const unregisterDeviceSchema = z.object({
+  token: z.string().min(1, 'token is required'),
 });

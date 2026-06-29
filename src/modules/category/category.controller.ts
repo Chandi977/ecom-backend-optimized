@@ -30,13 +30,17 @@ const attachSubCategories = async (categories: Array<Record<string, unknown>>) =
 
 export const createCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema } = req.body;
+    const { name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema, hsn_code, sac_code, tax_category, delivery_time } = req.body;
 
     const category = new Category({
       name,
       slug: slugify(name),
       category_id,
       gst: parseOptionalGstRate(gst) ?? 18,
+      hsn_code,
+      sac_code,
+      tax_category,
+      delivery_time,
       meta_title,
       meta_description,
       overview_fields: sanitizeOverviewFields(overview_fields),
@@ -66,7 +70,7 @@ export const getCategory = async (req: IAuthRequest, res: Response): Promise<voi
 
 export const updateCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { id, name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema } = req.body;
+    const { id, name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema, hsn_code, sac_code, tax_category, delivery_time } = req.body;
     const update: Record<string, unknown> = {
       name,
       slug: slugify(name),
@@ -75,8 +79,12 @@ export const updateCategory = async (req: IAuthRequest, res: Response): Promise<
       meta_description,
       overview_fields: sanitizeOverviewFields(overview_fields),
     };
+    if (hsn_code !== undefined) update.hsn_code = hsn_code;
+    if (sac_code !== undefined) update.sac_code = sac_code;
+    if (tax_category !== undefined) update.tax_category = tax_category;
     const parsedGst = parseOptionalGstRate(gst);
     if (parsedGst !== undefined) update.gst = parsedGst;
+    if (delivery_time !== undefined) update.delivery_time = delivery_time;
     if (field_visibility !== undefined) update.field_visibility = sanitizeFieldVisibility(field_visibility);
     if (common_attributes !== undefined) update.common_attributes = sanitizeCommonAttributes(common_attributes);
     if (spec_schema !== undefined) update.spec_schema = sanitizeSpecSchema(spec_schema);

@@ -6,6 +6,10 @@ export interface ISubCategoryDocument extends Document {
   category?: string;
   sub_category_id?: string;
   gst?: number;
+  hsn_code?: string;
+  sac_code?: string;
+  tax_category?: string;
+  delivery_time?: string;
   common_attributes?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -17,6 +21,12 @@ const subCategorySchema = new Schema<ISubCategoryDocument>({
   category: { type: Schema.Types.ObjectId, ref: 'Category' },
   sub_category_id: { type: String },
   gst: { type: Number, min: 0 },
+  // Sub-category-level tax/fulfillment defaults; override the parent category and
+  // are inherited by products (the product's own value still wins).
+  hsn_code: { type: String },
+  sac_code: { type: String },
+  tax_category: { type: String },
+  delivery_time: { type: String },
   // Optional sub-category-level attribute overrides. Resolved ahead of the parent
   // category's common_attributes during product attribute inheritance.
   common_attributes: { type: Schema.Types.Mixed, default: {} },

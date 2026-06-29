@@ -21,6 +21,9 @@ const verifyToken = async (token: string): Promise<IAuthPayload> => {
   return decoded;
 };
 
+const fullName = (decoded: IAuthPayload): string =>
+  [decoded.first_name, decoded.last_name].filter(Boolean).join(' ').trim();
+
 const sendAuthError = (
   res: Response,
   error: unknown,
@@ -48,6 +51,7 @@ export const userMiddleware = (
   verifyToken(token).then((decoded) => {
     req.user = decoded.id;
     req.userRole = decoded.role;
+    req.userName = fullName(decoded);
     next();
   }).catch((error) => sendAuthError(res, error));
 };
@@ -67,6 +71,7 @@ export const adminMiddleware = (
   verifyToken(token).then((decoded) => {
     req.user = decoded.id;
     req.userRole = decoded.role;
+    req.userName = fullName(decoded);
 
     if (decoded.role === 'user') {
       res.status(403).json(commonResponse('Access denied. Admin only.', false));
@@ -92,6 +97,7 @@ export const optionalAuth = (
   verifyToken(token).then((decoded) => {
     req.user = decoded.id;
     req.userRole = decoded.role;
+    req.userName = fullName(decoded);
     next();
   }).catch(() => {
     // Invalid auth should not make public endpoints fail.

@@ -6,7 +6,7 @@ import {
   countOrderStatus, searchOrder, createPayment, markPaymentAbandoned,
   markPaymentFailed, cancelUnpaidOrder,
 } from './order.controller';
-import { adminMiddleware, userMiddleware, optionalAuth, validate } from '../../middleware';
+import { adminMiddleware, authorize, userMiddleware, optionalAuth, validate } from '../../middleware';
 import {
   createOrderSchema, updateOrderSchema, updateOrderShippingSchema,
   updateOrderTrackingSchema, updateOrderDeliveredSchema, updateUtrSchema,
@@ -19,10 +19,10 @@ const router = Router();
 router.post('/order/create', userMiddleware, validate(createOrderSchema), createOrder);
 router.get('/order/all/orders', adminMiddleware, allOrders);
 router.get('/order/get/:id', userMiddleware, specificOrder);
-router.put('/order/update', adminMiddleware, validate(updateOrderSchema), updateOrder);
-router.put('/order/update/shipping', adminMiddleware, validate(updateOrderShippingSchema), updateOrderShipping);
-router.put('/order/update/tracking', adminMiddleware, validate(updateOrderTrackingSchema), updateOrderTracking);
-router.put('/order/update/delivered', adminMiddleware, validate(updateOrderDeliveredSchema), updateOrderDelivered);
+router.put('/order/update', adminMiddleware, authorize('order:write'), validate(updateOrderSchema), updateOrder);
+router.put('/order/update/shipping', adminMiddleware, authorize('order:write'), validate(updateOrderShippingSchema), updateOrderShipping);
+router.put('/order/update/tracking', adminMiddleware, authorize('order:write'), validate(updateOrderTrackingSchema), updateOrderTracking);
+router.put('/order/update/delivered', adminMiddleware, authorize('order:write'), validate(updateOrderDeliveredSchema), updateOrderDelivered);
 router.get('/order/search', adminMiddleware, searchOrder);
 router.get('/my/orders/:email', optionalAuth, getOrdersByEmail);
 router.get('/order/count/status', adminMiddleware, countOrderStatus);

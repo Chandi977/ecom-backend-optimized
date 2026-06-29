@@ -35,7 +35,10 @@ export const fetchFreight = async (req: IAuthRequest, res: Response): Promise<vo
 export const fetchOneFreight = async (req: IAuthRequest, res: Response): Promise<void> => {
   const { pincode, packweight } = req.body;
   try {
-    const matchingData = await Pincode.findOne({ pincode }).lean().exec();
+    const normalizedPincode = String(pincode).trim();
+    const matchingData = await Pincode.findOne({
+      $expr: { $eq: [{ $toString: '$pincode' }, normalizedPincode] },
+    }).lean().exec();
     if (matchingData) {
       let shippingCost = 0;
       const roundedPackweight = Math.ceil(Number(packweight) || 0);
@@ -43,14 +46,20 @@ export const fetchOneFreight = async (req: IAuthRequest, res: Response): Promise
         shippingCost = matchingData.freight * roundedPackweight;
       }
       res.json({
+        success: true,
         pincode: matchingData.pincode,
-        deliveryAvailable: matchingData.deliveryAvailable,
-        codAvailable: matchingData.codAvailable,
+        deliveryAvailable: matchingData.deliveryAvailable !== false,
+        codAvailable: Boolean(matchingData.codAvailable),
         estimatedDays: matchingData.estimatedDays,
         shippingCost,
       });
     } else {
-      res.status(404).json({ message: 'Data not found for the provided PIN' });
+      res.status(200).json({
+        success: false,
+        message: 'Data not found for the provided PIN',
+        deliveryAvailable: false,
+        shippingCost: 0,
+      });
     }
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown' });

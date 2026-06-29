@@ -7,7 +7,7 @@ import {
   SingleProduct, filterBoppProducts, filterPolyProducts, filterLabelProducts,
   SingleProductWithImage, addRelatedProducts, addBuyItWithProducts,
 } from './product.controller';
-import { adminMiddleware, validate } from '../../middleware';
+import { adminMiddleware, authorize, validate } from '../../middleware';
 import {
   createProductSchema, updateProductSchema, deleteProductSchema,
   addRelatedProductsSchema, searchMainProductsSchema,
@@ -20,14 +20,14 @@ const router = Router();
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-router.post('/product/create', adminMiddleware, validate(createProductSchema), createProduct);
+router.post('/product/create', adminMiddleware, authorize('product:create'), validate(createProductSchema), createProduct);
 router.get('/product/get', getProducts);
 router.get('/product/get/id/:id', getProductById);
 router.get('/product/get/:slug', getProduct);
-router.put('/product/update', adminMiddleware, validate(updateProductSchema), updateProduct);
-router.post('/product/:id/related/add', adminMiddleware, validate(addRelatedProductsSchema), addRelatedProducts);
-router.post('/product/:id/buy-it-with/add', adminMiddleware, validate(addBuyItWithProductsSchema), addBuyItWithProducts);
-router.post('/product/delete', adminMiddleware, validate(deleteProductSchema), deleteProduct);
+router.put('/product/update', adminMiddleware, authorize('product:update'), validate(updateProductSchema), updateProduct);
+router.post('/product/:id/related/add', adminMiddleware, authorize('product:update'), validate(addRelatedProductsSchema), addRelatedProducts);
+router.post('/product/:id/buy-it-with/add', adminMiddleware, authorize('product:update'), validate(addBuyItWithProductsSchema), addBuyItWithProducts);
+router.post('/product/delete', adminMiddleware, authorize('product:delete'), validate(deleteProductSchema), deleteProduct);
 router.get('/product/all', allProducts);
 router.get('/product/search', searchProduct);
 router.post('/product/main/search', validate(searchMainProductsSchema), searchMainProducts);

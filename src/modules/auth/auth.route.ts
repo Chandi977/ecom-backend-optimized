@@ -6,7 +6,7 @@ import {
   reVerifyEmail, updateCouponCode, refreshAuthToken, logout,
   getPrivacyPreferences, updatePrivacyPreferences,
 } from './auth.controller';
-import { adminMiddleware, userMiddleware, validate } from '../../middleware';
+import { adminMiddleware, authorize, optionalAuth, userMiddleware, validate } from '../../middleware';
 import {
   signupSchema, signinSchema, googleAuthSchema, refreshAuthSchema,
   logoutSchema, deleteUserSchema, editUserSchema, changePasswordSchema,
@@ -16,7 +16,9 @@ import {
 
 const router = Router();
 
-router.post('/signup', validate(signupSchema), signup);
+// optionalAuth lets the controller honor a requested role ONLY when an authenticated
+// full-access admin makes the call; anonymous/public signups are forced to 'user'.
+router.post('/signup', optionalAuth, validate(signupSchema), signup);
 router.post('/signin', validate(signinSchema), signIn);
 router.post('/auth/google', validate(googleAuthSchema), googleAuth);
 router.post('/auth/refresh', validate(refreshAuthSchema), refreshAuthToken);
@@ -25,18 +27,18 @@ router.get('/allCustomers', adminMiddleware, Allusers);
 router.get('/userStats', adminMiddleware, userStats);
 router.get('/searchusers', adminMiddleware, searchUsers);
 router.get('/countUsers', adminMiddleware, CountUsers);
-router.post('/deleteUser', adminMiddleware, validate(deleteUserSchema), deleteUser);
+router.post('/deleteUser', adminMiddleware, authorize('user:write'), validate(deleteUserSchema), deleteUser);
 router.get('/getuser/:id', userMiddleware, specificuser);
 router.get('/user/privacy-preferences', userMiddleware, getPrivacyPreferences);
 router.put('/user/privacy-preferences', userMiddleware, validate(updatePrivacyPreferencesSchema), updatePrivacyPreferences);
 router.post('/edituser', userMiddleware, validate(editUserSchema), editUser);
-router.post('/adminPass', adminMiddleware, validate(changePasswordSchema), changePassword);
+router.post('/adminPass', adminMiddleware, authorize('user:write'), validate(changePasswordSchema), changePassword);
 router.get('/totalUsers', adminMiddleware, totalUsers);
 router.get('/all/admin', adminMiddleware, AllAdminRoles);
 router.get('/all/admin/list', adminMiddleware, totalAdmin);
 router.get('/count/admin', adminMiddleware, CountAdmin);
 router.post('/verify/email', validate(verifyEmailSchema), verifyEmail);
-router.put('/update/verified', adminMiddleware, validate(updateVerifiedSchema), updateField);
+router.put('/update/verified', adminMiddleware, authorize('user:write'), validate(updateVerifiedSchema), updateField);
 router.post('/re/verify/email', validate(reVerifyEmailSchema), reVerifyEmail);
 router.post('/add/coupon', userMiddleware, validate(addCouponToUserSchema), updateCouponCode);
 

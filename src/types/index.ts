@@ -33,6 +33,9 @@ export interface IPrivacyPreferences {
 export interface IAddress {
   name?: string;
   phone?: string;
+  mobile?: string;
+  email?: string;
+  gstin?: string;
   address?: string;
   town?: string;
   state?: string;
@@ -62,6 +65,8 @@ export interface IProduct {
   aboutItem?: string;
   usage?: string;
   hsn_code?: string;
+  sac_code?: string;
+  tax_category?: string;
   delivery_time?: string;
   // Category-specific spec fields stored flat on the product.
   material?: string;
@@ -101,6 +106,9 @@ export interface IProduct {
   field_visibility?: Record<string, boolean>;
   stock_quantity?: number;
   adhesive?: string;
+  // Dynamic, category-defined attributes surfaced from the ProductSpecification
+  // sidecar's `attributes` map; also flattened onto the product for back-compat.
+  attributes?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -216,6 +224,11 @@ export interface ICategory {
   slug: string;
   category_id?: string;
   gst?: number;
+  hsn_code?: string;
+  sac_code?: string;
+  tax_category?: string;
+  // Category-level tax/fulfillment defaults inherited by products (product wins).
+  delivery_time?: string;
   meta_title?: string;
   meta_description?: string;
   overview_fields?: IOverviewField[];
@@ -240,6 +253,12 @@ export interface ISubCategory {
   category?: string;
   sub_category_id?: string;
   gst?: number;
+  // Sub-category-level tax/fulfillment defaults; override the parent category and
+  // are inherited by products (the product's own value still wins).
+  hsn_code?: string;
+  sac_code?: string;
+  tax_category?: string;
+  delivery_time?: string;
   // Optional sub-category-level attribute overrides; take precedence over the
   // parent category's common_attributes during product attribute inheritance.
   common_attributes?: Record<string, unknown>;
@@ -253,6 +272,63 @@ export interface IBrand {
   slug: string;
   brand_id?: string;
   image?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type AttributeType = 'number' | 'select' | 'text' | 'boolean';
+
+// Reusable, admin-managed definition of a product attribute (spec). Owns the
+// presentation/validation metadata for an attribute `key`; a product stores only
+// the value. Drives dynamic spec forms and filters per category/sub-category.
+export interface IAttributeDefinition {
+  _id: string;
+  key: string;
+  label: string;
+  description?: string;
+  type: AttributeType;
+  unit?: string;
+  options?: string[];
+  required?: boolean;
+  searchable?: boolean;
+  filterable?: boolean;
+  sortable?: boolean;
+  default_value?: unknown;
+  categories?: string[];
+  sub_categories?: string[];
+  order?: number;
+  isActive?: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IVariantDimensions {
+  length?: number;
+  width?: number;
+  height?: number;
+  unit?: string;
+}
+
+// Per-SKU variant of a product (pack size / colour / etc). Optional and opt-in;
+// products with no variants are unaffected. Distinguishing spec values live in
+// the dynamic `attributes` map, mirroring ProductSpecification.
+export interface IProductVariant {
+  _id: string;
+  product: string;
+  sku?: string;
+  barcode?: string;
+  name?: string;
+  attributes?: Record<string, unknown>;
+  weight?: number;
+  pack_size?: number;
+  dimensions?: IVariantDimensions;
+  price?: number;
+  original_price?: number;
+  discount?: number;
+  stock_quantity?: number;
+  pack_weight?: number;
+  isActive?: boolean;
+  order?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -340,6 +416,9 @@ export interface IOrderItem {
   gst?: number;
   gstAmount?: number;
   totalPrice?: number;
+  // Resolved HSN code for this line (product -> sub_category -> category), captured
+  // at order time for the GST invoice.
+  hsn_code?: string;
 }
 
 export interface ICoupon {
@@ -444,6 +523,63 @@ export interface IAppVersion {
   updatedAt: Date;
 }
 
+export type NotificationChannel = 'email' | 'push' | 'inapp';
+
+export interface INotificationTemplate {
+  _id: string;
+  key: string;
+  channel: NotificationChannel;
+  name: string;
+  description?: string;
+  subject: string;
+  body: string;
+  variables: string[];
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface INotificationItem {
+  _id: string;
+  user: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  source: 'broadcast' | 'event';
+  templateKey?: string;
+  campaign?: string;
+  isRead: boolean;
+  readAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface INotificationCampaign {
+  _id: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  audience: 'all' | 'role' | 'users';
+  audienceRef?: string;
+  recipientCount: number;
+  pushSent: number;
+  emailSent: number;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IUserDevice {
+  _id: string;
+  user: string;
+  token: string;
+  platform: 'android' | 'ios';
+  lastSeenAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ICounter {
   _id: string;
   name: string;
@@ -470,6 +606,7 @@ export interface IAuthPayload {
 export interface IAuthRequest extends Request {
   user?: string;
   userRole?: string;
+  userName?: string;
 }
 
 export interface IPaginationMeta {

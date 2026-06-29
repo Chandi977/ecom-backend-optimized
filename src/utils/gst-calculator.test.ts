@@ -93,3 +93,39 @@ describe('calculateOrderGST — per-product GST priority (product wins)', () => 
     expect(result.totalOrderValue).toBe(164); // 150 + 14
   });
 });
+
+describe('calculateOrderGST — HSN code resolution (product -> sub_category -> category)', () => {
+  it('uses the product hsn_code when present', async () => {
+    mockProduct.find.mockReturnValue(
+      makeQuery([{ _id: 'p1', hsn_code: '4821', category: { hsn_code: '9999' }, sub_category: { hsn_code: '8888' } }]),
+    );
+
+    const result = await calculateOrderGST([item('p1', 100, 1)], 0);
+
+    expect(result.itemsWithGst[0].hsn_code).toBe('4821');
+  });
+
+  it('falls back to sub_category hsn_code, then category, when the product has none', async () => {
+    mockProduct.find.mockReturnValue(
+      makeQuery([{ _id: 'p2', category: { hsn_code: '9999' }, sub_category: { hsn_code: '8888' } }]),
+    );
+    const r1 = await calculateOrderGST([item('p2', 100, 1)], 0);
+    expect(r1.itemsWithGst[0].hsn_code).toBe('8888'); // sub_category wins over category
+
+    mockProduct.find.mockReturnValue(
+      makeQuery([{ _id: 'p3', category: { hsn_code: '9999' }, sub_category: null }]),
+    );
+    const r2 = await calculateOrderGST([item('p3', 100, 1)], 0);
+    expect(r2.itemsWithGst[0].hsn_code).toBe('9999'); // falls through to category
+  });
+
+  it('omits hsn_code when none is set on product, sub_category or category', async () => {
+    mockProduct.find.mockReturnValue(
+      makeQuery([{ _id: 'p4', category: null, sub_category: null }]),
+    );
+
+    const result = await calculateOrderGST([item('p4', 100, 1)], 0);
+
+    expect(result.itemsWithGst[0].hsn_code).toBeUndefined();
+  });
+});

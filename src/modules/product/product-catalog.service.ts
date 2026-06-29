@@ -5,6 +5,8 @@ import Pricing from './pricing.model';
 import Inventory from './inventory.model';
 import ProductMedia from './product-media.model';
 import SEO from './seo.model';
+import { sanitizeCommonAttributes } from '../../utils/category-attributes';
+import SubCategory from '../subcategory/subcategory.model';
 
 export const PRODUCT_POPULATE_PATHS = 'brand category sub_category specification pricing inventory media seo';
 
@@ -28,6 +30,17 @@ const pickPresent = (source: Record<string, unknown>, keys: readonly string[]): 
 
 const isObjectIdLike = (value: unknown): boolean =>
   value instanceof mongoose.Types.ObjectId || (value as Record<string, unknown> | undefined)?._bsontype === 'ObjectId';
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value) && !isObjectIdLike(value);
+
+// Normalizes the sidecar's `attributes` (stored as a Mongoose Map, or a plain
+// object after .lean()) into a plain object, or undefined when empty.
+const toPlainAttributes = (value: unknown): Record<string, unknown> | undefined => {
+  if (value instanceof Map) return value.size ? Object.fromEntries(value) : undefined;
+  if (isPlainObject(value)) return Object.keys(value).length ? value : undefined;
+  return undefined;
+};
 
 const objectValue = (source: Record<string, unknown>, key: string): Record<string, unknown> => {
   const value = source[key];
@@ -62,6 +75,21 @@ const firstNumericTierValue = (priceList: unknown, key: string): number | undefi
 const toObjectId = (value: string | mongoose.Types.ObjectId): mongoose.Types.ObjectId =>
   typeof value === 'string' ? new (mongoose.Types.ObjectId as any)(value) : value;
 
+// Keeps a product's category aligned with its sub-category's parent so the GST /
+// HSN / attribute inheritance chain is never broken. Fills the category from the
+// sub-category when the caller didn't supply one; an explicit category is
+// respected. Generic — ANY new category/sub-category works with no code change,
+// the sub-category just needs to reference its parent category.
+export const resolveCategoryLink = async (
+  categoryId: unknown,
+  subCategoryId: unknown,
+): Promise<unknown> => {
+  if (categoryId) return categoryId;
+  if (!subCategoryId) return categoryId;
+  const sub = await SubCategory.findById(String(subCategoryId)).select('category').lean().exec();
+  return (sub as { category?: unknown } | null)?.category ?? categoryId;
+};
+
 export const buildLegacyProductPayload = (source: Record<string, unknown>): Record<string, unknown> => {
   const normalizedSpec = objectValue(source, 'specification');
   const normalizedPricing = objectValue(source, 'pricing');
@@ -75,7 +103,7 @@ export const buildLegacyProductPayload = (source: Record<string, unknown>): Reco
     ...(Array.isArray(normalizedMedia.gallery) ? { images: normalizedMedia.gallery } : {}),
     ...pickPresent(normalizedSeo, ['meta_title', 'meta_description', 'overview_fields']),
     ...pickPresent(source, [
-    'name', 'model', 'delivery_time', 'hsn_code', 'price', 'gst', 'meta_title',
+    'name', 'model', 'delivery_time', 'hsn_code', 'sac_code', 'tax_category', 'price', 'gst', 'meta_title',
     'meta_description', 'images', 'description', 'aboutItem', 'usage', 'product_id',
     'top_product', 'deal_product', 'priceList',
     ...SPEC_FIELD_KEYS,
@@ -103,7 +131,20 @@ export const syncProductCatalogRefs = async (
     ...(source.label_in_role !== undefined && source.label_in_roll === undefined
       ? { label_in_roll: source.label_in_role }
       : {}),
-  };
+  } as Record<string, unknown>;
+  // Dynamic attributes: merge nested (specification.attributes) and top-level
+  // (source.attributes), sanitized (drops the dot/$ keys a MongoDB Map rejects).
+  // Only written when non-empty, so a save without attributes never wipes the
+  // sidecar's existing ones.
+  const mergedAttributes = sanitizeCommonAttributes({
+    ...(isPlainObject(normalizedSpec.attributes) ? normalizedSpec.attributes : {}),
+    ...(isPlainObject(source.attributes) ? source.attributes : {}),
+  });
+  if (Object.keys(mergedAttributes).length > 0) {
+    specPayload.attributes = mergedAttributes;
+  } else {
+    delete specPayload.attributes;
+  }
   const priceList = Array.isArray(source.priceList)
     ? source.priceList
     : Array.isArray(normalizedPricing.priceList) ? normalizedPricing.priceList : undefined;
@@ -222,6 +263,14 @@ export const flattenProductCatalog = (
   const specification = stripSidecarProductRef(plain.specification);
   if (specification) {
     SPEC_FIELD_KEYS.forEach((key) => assignIfEmpty(plain, key, specification[key]));
+    // Surface the sidecar's dynamic attributes: expose the whole map on
+    // `attributes` and flatten each key onto the product (an explicit product
+    // field of the same key still wins via assignIfEmpty).
+    const specAttributes = toPlainAttributes(specification.attributes);
+    if (specAttributes) {
+      plain.attributes = { ...(isPlainObject(plain.attributes) ? plain.attributes : {}), ...specAttributes };
+      Object.entries(specAttributes).forEach(([key, value]) => assignIfEmpty(plain, key, value));
+    }
   }
 
   const pricing = stripSidecarProductRef(plain.pricing);
@@ -254,6 +303,11 @@ export const flattenProductCatalog = (
     if (!owner) return;
     // gst is a first-class field on the owner, not part of common_attributes.
     assignIfEmpty(plain, 'gst', owner.gst);
+    // hsn_code / delivery_time are first-class inheritable defaults too (product wins).
+    assignIfEmpty(plain, 'hsn_code', owner.hsn_code);
+    assignIfEmpty(plain, 'sac_code', owner.sac_code);
+    assignIfEmpty(plain, 'tax_category', owner.tax_category);
+    assignIfEmpty(plain, 'delivery_time', owner.delivery_time);
     const common = owner.common_attributes;
     if (common && typeof common === 'object' && !Array.isArray(common)) {
       Object.entries(common as Record<string, unknown>).forEach(([key, value]) =>

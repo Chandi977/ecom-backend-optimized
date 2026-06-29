@@ -1,13 +1,16 @@
 import { Response } from 'express';
 import SubCategory from '../subcategory/subcategory.model';
+import Product from '../product/product.model';
+import Category from '../category/category.model';
 import { commonResponse } from '../../utils/response';
 import slugify from 'slugify';
 import { IAuthRequest } from '../../types';
 import { parseOptionalGstRate } from '../../utils/gst-rate';
+import { sanitizeCommonAttributes } from '../../utils/category-attributes';
 
 export const createSubCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, category, sub_category_id, gst } = req.body;
+    const { name, category, sub_category_id, gst, hsn_code, sac_code, tax_category, delivery_time, common_attributes } = req.body;
     if (!name) { res.status(400).json(commonResponse('Name is required', false)); return; }
     const parsedGst = parseOptionalGstRate(gst);
     const subCategory = new SubCategory({
@@ -16,6 +19,11 @@ export const createSubCategory = async (req: IAuthRequest, res: Response): Promi
       category,
       sub_category_id,
       ...(parsedGst !== undefined ? { gst: parsedGst } : {}),
+      ...(hsn_code !== undefined ? { hsn_code } : {}),
+      ...(sac_code !== undefined ? { sac_code } : {}),
+      ...(tax_category !== undefined ? { tax_category } : {}),
+      ...(delivery_time !== undefined ? { delivery_time } : {}),
+      ...(common_attributes !== undefined ? { common_attributes: sanitizeCommonAttributes(common_attributes) } : {}),
     });
     const data = await subCategory.save();
     res.status(201).json(commonResponse('SubCategory created', true, data));
@@ -39,13 +47,70 @@ export const getSubCategory = async (req: IAuthRequest, res: Response): Promise<
 
 export const updateSubCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { id, name, category, sub_category_id, gst } = req.body;
-    const update: Record<string, unknown> = { name, slug: slugify(name), category };
+    const { id, name, category, sub_category_id, gst, hsn_code, sac_code, tax_category, delivery_time, common_attributes } = req.body;
+    const existing = await SubCategory.findById(id).lean().exec();
+    if (!existing) { res.status(404).json(commonResponse('Not found', false)); return; }
+
+    const update: Record<string, unknown> = {};
+    if (name !== undefined) {
+      update.name = name;
+      update.slug = slugify(name);
+    }
+    if (category !== undefined) update.category = category;
+    const productUpdate: Record<string, unknown> = {};
     if (sub_category_id !== undefined) update.sub_category_id = sub_category_id;
     const parsedGst = parseOptionalGstRate(gst);
-    if (parsedGst !== undefined) update.gst = parsedGst;
-    const data = await SubCategory.findOneAndUpdate({ _id: id }, update).exec();
-    res.status(data ? 200 : 404).json(commonResponse(data ? 'Updated' : 'Not found', !!data, data || undefined));
+    if (parsedGst !== undefined) {
+      update.gst = parsedGst;
+      productUpdate.gst = parsedGst;
+    }
+    if (hsn_code !== undefined) {
+      update.hsn_code = hsn_code;
+      productUpdate.hsn_code = hsn_code;
+    }
+    if (sac_code !== undefined) {
+      update.sac_code = sac_code;
+      productUpdate.sac_code = sac_code;
+    }
+    if (tax_category !== undefined) {
+      update.tax_category = tax_category;
+      productUpdate.tax_category = tax_category;
+    }
+    if (delivery_time !== undefined) {
+      update.delivery_time = delivery_time;
+      productUpdate.delivery_time = delivery_time;
+    }
+    if (common_attributes !== undefined) update.common_attributes = sanitizeCommonAttributes(common_attributes);
+    const data = await SubCategory.findOneAndUpdate({ _id: id }, update, { new: true }).lean().exec();
+    if (!data) { res.status(404).json(commonResponse('Not found', false)); return; }
+
+    let productsUpdated = 0;
+    if (Object.keys(productUpdate).length > 0) {
+      const productScopes: Record<string, unknown>[] = [{ sub_category: data._id }];
+      const legacyMatches = [
+        { name: existing.name },
+        { slug: existing.slug },
+        { name: data.name },
+        { slug: data.slug },
+      ].filter((match) => Object.values(match)[0]);
+      const legacyCategory = await Category.findOne({
+        _id: { $ne: data.category },
+        $or: legacyMatches,
+      }).select('_id').lean().exec();
+
+      if (legacyCategory?._id) productScopes.push({ category: legacyCategory._id });
+
+      const productResult = await Product.updateMany(
+        { $or: productScopes },
+        { $set: productUpdate },
+      ).exec();
+      productsUpdated = productResult.modifiedCount ?? productResult.matchedCount ?? 0;
+    }
+
+    res.status(200).json(commonResponse('Updated', true, {
+      subCategory: data,
+      productsUpdated,
+    }));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };
 

@@ -18,6 +18,9 @@
     "sync:indexes": "node dist/scripts/sync-indexes.js",
     "migrate:product-catalog-sidecars": "node dist/scripts/migrate-product-catalog-sidecars.js",
     "migrate:revert-product-attributes": "node dist/scripts/revert-product-attributes.js",
+    "migrate:spec-attributes": "node dist/scripts/migrate-spec-attributes.js",
+    "migrate:product-category-link": "node dist/scripts/migrate-product-category-link.js",
+    "setup:category-sections": "ts-node --transpile-only src/scripts/setup-category-sections.ts",
     "export:positive-stock-pdf": "node dist/scripts/exportPositiveStockPdf.js",
     "swagger:check": "node dist/scripts/checkSwaggerCoverage.js",
     "worker": "ts-node-dev --respawn --transpile-only src/workers/index.ts",
@@ -55,6 +58,9 @@
     "swagger-ui-express": "^5.0.1",
     "winston": "^3.11.0",
     "zod": "^4.4.3"
+  },
+  "optionalDependencies": {
+    "firebase-admin": "^13.10.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

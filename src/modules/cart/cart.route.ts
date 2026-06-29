@@ -2,7 +2,7 @@ import { Router } from 'express';
 import {
   AddtoCart, alterQuantity, getCart, getCartCount, updateProductTypeAllCoupon,
   removeFromCart, emptyCart, updateCart, updateShippingCoupon,
-  updateAllDiscount, removeCoupon,
+  updateAllDiscount, removeCoupon, calculateCart,
 } from './cart.controller';
 import { userMiddleware, validate } from '../../middleware';
 import {
@@ -14,6 +14,7 @@ import {
 
 const router = Router();
 
+router.post('/cart/calculate', calculateCart);
 router.post('/AddtoCart', userMiddleware, validate(addToCartSchema), AddtoCart);
 router.post('/alterQunatity', userMiddleware, validate(alterQuantitySchema), alterQuantity);
 router.get('/cart/:id', userMiddleware, getCart);

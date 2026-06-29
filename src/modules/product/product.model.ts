@@ -116,6 +116,8 @@ const productSchema = new Schema<IProductDocument>(
     aboutItem: { type: String },
     usage: { type: String },
     hsn_code: { type: String },
+    sac_code: { type: String },
+    tax_category: { type: String },
     delivery_time: { type: String },
     // Category-specific spec fields (dimensions, material, print, adhesive, …).
     length: { type: Number },
