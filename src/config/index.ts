@@ -48,6 +48,11 @@ export const config = {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || '',
     webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+    // DEV-ONLY: when true, orders may be marked paid without a real Razorpay
+    // payment. This raw flag is opt-in; the order controller additionally
+    // requires TEST keys (rzp_test_) before it takes effect, so it can never
+    // fire against live keys even if this is accidentally left on.
+    allowPaymentBypass: process.env.ALLOW_PAYMENT_BYPASS === 'true',
   },
 
   google: {

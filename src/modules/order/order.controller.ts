@@ -25,6 +25,16 @@ const razorpay = new Razorpay({
   key_secret: config.razorpay.keySecret,
 });
 
+// DEV-ONLY payment bypass. Lets an order be marked "Payment Verified" without a
+// real Razorpay payment. Hard-gated to TEST keys (rzp_test_) so it is physically
+// impossible to trigger against live keys, and requires ALLOW_PAYMENT_BYPASS=true
+// on top of that. Both conditions must hold — off by default.
+const PAYMENT_BYPASS_ENABLED =
+  config.razorpay.allowPaymentBypass && config.razorpay.keyId.startsWith('rzp_test');
+if (PAYMENT_BYPASS_ENABLED) {
+  logger.warn('⚠️  Razorpay payment bypass is ENABLED (test keys) — orders can be marked paid WITHOUT payment. Never enable this in production.');
+}
+
 const IMAGE_SIGN_OPTIONS = { expiresIn: 3600 };
 const PAYMENT_STATUS_SET = new Set(['Not Paid', 'Payment Processed', 'Payment Verified', 'Paid', 'Payment Failed', 'Payment Abandoned', 'Cancelled', 'Expired']);
 
@@ -320,12 +330,17 @@ export const updatePaymentStatus = async (req: IAuthRequest, res: Response): Pro
       if (razorpayPaymentId) {
         // Online payment: always cryptographically verify against Razorpay.
         await verifyRazorpayPayment({ razorpayPaymentId, razorpayOrderId, razorpaySignature }, order.toObject());
-      } else if (!isAdmin) {
+      } else if (isAdmin) {
+        // A trusted admin is manually confirming a non-Razorpay payment (e.g. UTR).
+      } else if (PAYMENT_BYPASS_ENABLED) {
+        // DEV-ONLY: test keys + ALLOW_PAYMENT_BYPASS let a customer self-verify
+        // without paying, so the checkout flow can be exercised end-to-end.
+        logger.warn(`Payment bypass used to verify order ${_id} (test mode, no Razorpay payment).`);
+      } else {
         // No Razorpay payment to verify and the caller is not an admin: refuse, so
         // a customer can never self-verify their own order without actually paying.
         throw new Error('Missing payment id');
       }
-      // else: a trusted admin is manually confirming a non-Razorpay payment (e.g. UTR).
     }
 
     const requestedVerification = normalized === 'Payment Verified';
