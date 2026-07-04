@@ -99,7 +99,15 @@ export const dispatch = async (opts: IDispatchOptions): Promise<IDispatchResult>
     const tokens = devices.map((d) => d.token).filter(Boolean);
     deviceCount = tokens.length;
     if (tokens.length > 0) {
-      pushSent = await sendPush(tokens, { title: opts.title, body: opts.body, data });
+      pushSent = await sendPush(
+        tokens,
+        { title: opts.title, body: opts.body, image: typeof data.image === 'string' ? data.image : undefined, data },
+        // Prune tokens FCM reports as permanently dead so the registry self-cleans.
+        async (dead) => {
+          const result = await UserDevice.deleteMany({ token: { $in: dead } }).exec();
+          logger.info('Pruned dead device tokens', { count: result.deletedCount ?? dead.length });
+        },
+      );
     }
   } catch (err) {
     logger.error('Push fan-out failed', { error: err instanceof Error ? err.message : 'Unknown' });
