@@ -116,6 +116,14 @@ const getStrictClient = async (): Promise<Redis> => {
   return c;
 };
 
+/**
+ * Returns the shared cache client once it is ready, or throws/times out if Redis
+ * is unreachable. Used by the lock helper to run raw `SET … NX PX` and `EVAL`
+ * commands; callers must add their own key prefix and fall back gracefully on
+ * throw (the lock helper degrades to an in-process lock — see lock.ts).
+ */
+export const getRedisClient = async (): Promise<Redis> => getStrictClient();
+
 export const cacheGet = async <T>(key: string): Promise<T | null> => {
   try {
     const raw = await getClient().get(KEY_PREFIX + key);

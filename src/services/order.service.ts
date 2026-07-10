@@ -2,6 +2,7 @@ import Order from '../modules/order/order.model';
 import Counter from '../modules/counter/counter.model';
 import { addJob, emailQueue } from '../queue';
 import { logger } from '../utils/logger';
+import { withLock } from '../utils/concurrency/lock';
 
 const FAILURE_STATUSES = new Set(['Payment Failed', 'Payment Abandoned', 'Cancelled', 'Expired']);
 
@@ -54,7 +55,13 @@ export const resolvePaymentStatus = (current: string, desired: string): string =
   return desiredIndex >= currentIndex ? desired : current;
 };
 
-export const finalizeVerifiedPayment = async (orderId: string): Promise<unknown> => {
+export const finalizeVerifiedPayment = async (orderId: string): Promise<unknown> => (
+  // Serialize finalization per order so a duplicate webhook + frontend update can
+  // never mint two PI- numbers or double-send confirmation emails.
+  withLock([`finalize:order:${orderId}`], () => finalizeVerifiedPaymentLocked(orderId), { ttlMs: 30000 })
+);
+
+const finalizeVerifiedPaymentLocked = async (orderId: string): Promise<unknown> => {
   const order = await Order.findById(orderId).exec();
   if (!order) throw new Error(`Order not found: ${orderId}`);
 

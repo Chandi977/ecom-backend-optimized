@@ -1,6 +1,12 @@
 import Order from '../modules/order/order.model';
 import Product from '../modules/product/product.model';
 import { logger } from '../utils/logger';
+import { withLock } from '../utils/concurrency/lock';
+
+// Per-line lock keys. withLock sorts them, so acquiring several at once cannot
+// deadlock against another order that shares some of the same products.
+const stockLockKeys = (items: IStockItem[]): string[] =>
+  items.map((i) => `stock:${i.productId}:${i.packSize}`);
 
 export interface IStockItem {
   productId: string;
@@ -72,21 +78,23 @@ export const reduceStockForOrder = async (orderId: string): Promise<IStockAdjust
   const items = toStockItems(order.items as unknown as Array<Record<string, unknown>>);
   if (items.length === 0) throw new Error(`Order has no stock-adjustable items: ${orderId}`);
 
-  await incrementStock(items, -1);
+  return withLock(stockLockKeys(items), async () => {
+    await incrementStock(items, -1);
 
-  const updated = await Order.findOneAndUpdate(
-    { _id: order._id, stockReduced: false },
-    { $set: { stockReduced: true } },
-    { new: true }
-  ).exec();
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, stockReduced: false },
+      { $set: { stockReduced: true } },
+      { new: true }
+    ).exec();
 
-  if (!updated) {
-    await incrementStock(items, 1);
-    return { orderId, adjusted: false, items: [] };
-  }
+    if (!updated) {
+      await incrementStock(items, 1);
+      return { orderId, adjusted: false, items: [] };
+    }
 
-  logger.info('Order stock reduced', { orderId, items });
-  return { orderId, adjusted: true, items };
+    logger.info('Order stock reduced', { orderId, items });
+    return { orderId, adjusted: true, items };
+  }, { ttlMs: 15000 });
 };
 
 export const restoreStockForOrder = async (orderId: string): Promise<IStockAdjustmentResult> => {
@@ -99,19 +107,21 @@ export const restoreStockForOrder = async (orderId: string): Promise<IStockAdjus
   const items = toStockItems(order.items as unknown as Array<Record<string, unknown>>);
   if (items.length === 0) throw new Error(`Order has no stock-adjustable items: ${orderId}`);
 
-  await incrementStock(items, 1);
+  return withLock(stockLockKeys(items), async () => {
+    await incrementStock(items, 1);
 
-  const updated = await Order.findOneAndUpdate(
-    { _id: order._id, stockReduced: true },
-    { $set: { stockReduced: false } },
-    { new: true }
-  ).exec();
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, stockReduced: true },
+      { $set: { stockReduced: false } },
+      { new: true }
+    ).exec();
 
-  if (!updated) {
-    await incrementStock(items, -1);
-    return { orderId, adjusted: false, items: [] };
-  }
+    if (!updated) {
+      await incrementStock(items, -1);
+      return { orderId, adjusted: false, items: [] };
+    }
 
-  logger.info('Order stock restored', { orderId, items });
-  return { orderId, adjusted: true, items };
+    logger.info('Order stock restored', { orderId, items });
+    return { orderId, adjusted: true, items };
+  }, { ttlMs: 15000 });
 };

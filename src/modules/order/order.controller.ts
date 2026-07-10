@@ -15,6 +15,7 @@ import { addJob, emailQueue, orderQueue } from '../../queue';
 import { resolvePaymentStatus, deriveOrderStatus } from '../../services/order.service';
 import { IStockItem, toStockItems } from '../../services/stock.service';
 import { notifyUserEvent } from '../notification/custom-notification.service';
+import { withLock } from '../../utils/concurrency/lock';
 
 if (!config.razorpay.keyId || !config.razorpay.keySecret) {
   throw new Error('Razorpay env vars missing');
@@ -94,7 +95,14 @@ const queuePaymentFinalization = async (orderId: string): Promise<void> => {
 };
 
 export const createOrder = async (req: IAuthRequest, res: Response): Promise<void> => {
+  // Serialize checkout per user (or per guest identity) so a double-clicked
+  // "Place order" cannot create two orders in parallel. Belt-and-suspenders over
+  // the idempotencyKey dedupe below.
+  const lockKey = req.user
+    ? `create-order:user:${req.user}`
+    : `create-order:guest:${String(req.body?.email || req.body?.phone || req.body?.mobile || req.ip || 'anon').toLowerCase()}`;
   try {
+    await withLock([lockKey], async () => {
     const { items, name, phone, mobile, email, address, town, state, pincode, landmark, gstin, total, totalPackWeight, shippingCost, totalOrderValue, totalCartValue, utrNumber, couponCode } = req.body;
     const idempotencyKey = req.body.idempotencyKey || req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || null;
 
@@ -164,6 +172,7 @@ export const createOrder = async (req: IAuthRequest, res: Response): Promise<voi
     } else {
       res.status(500).json(commonResponse('Failed to create order', false));
     }
+    }, { ttlMs: 15000 });
   } catch (error: unknown) {
     const err = error as Error & { code?: number };
     if (err.code === 11000 && req.body.idempotencyKey) {

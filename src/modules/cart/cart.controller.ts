@@ -5,6 +5,11 @@ import Product from '../product/product.model';
 import { processImages } from '../../utils/s3';
 import { IAuthRequest } from '../../types';
 import { calculateCartTotals } from '../../services/cart-calculation.service';
+import { withLock } from '../../utils/concurrency/lock';
+
+// Cart mutations read the whole products array, recompute, then overwrite it.
+// Serialize per user so two concurrent requests can't lose each other's update.
+const cartLockKey = (user: string): string[] => [`cart:${user}`];
 
 // Cart line-items render small thumbnails — serve resized derivatives.
 const IMAGE_SIGN_OPTIONS = { expiresIn: 86400, width: 400 };
@@ -29,6 +34,7 @@ export const AddtoCart = async (req: IAuthRequest, res: Response): Promise<void>
   const user = req.user!;
 
   try {
+    await withLock(cartLockKey(user), async () => {
     const cart = await Cart.findOne({ user }).exec();
 
     if (!cart) {
@@ -82,6 +88,7 @@ export const AddtoCart = async (req: IAuthRequest, res: Response): Promise<void>
         res.status(201).json(commonResponse('Item updated in cart', true, updated));
       }
     }
+    });
   } catch (error) {
     res.status(500).json(commonResponse('Something went wrong', false));
   }
@@ -93,6 +100,7 @@ export const alterQuantity = async (req: IAuthRequest, res: Response): Promise<v
   const nextQty = Math.max(1, Number(quantity) || 1);
 
   try {
+    await withLock(cartLockKey(user), async () => {
     const cart = await Cart.findOne({ user }).exec();
     if (!cart) { res.status(404).json(commonResponse('Cart not found', false)); return; }
 
@@ -120,6 +128,7 @@ export const alterQuantity = async (req: IAuthRequest, res: Response): Promise<v
       { new: true }
     ).exec();
     res.status(201).json(commonResponse('Quantity updated', true, data));
+    });
   } catch (error) {
     res.status(500).json(commonResponse('Error', false));
   }
@@ -131,6 +140,7 @@ export const updateCart = async (req: IAuthRequest, res: Response): Promise<void
     const user = req.user!;
     if (!user || !Array.isArray(updates)) { res.status(400).json(commonResponse('Invalid request', false)); return; }
 
+    await withLock(cartLockKey(user), async () => {
     const cart = await Cart.findOne({ user }).exec();
     if (!cart) { res.status(403).json(commonResponse('Cart not found', false)); return; }
 
@@ -146,6 +156,7 @@ export const updateCart = async (req: IAuthRequest, res: Response): Promise<void
       { new: true }
     ).exec();
     res.status(201).json(commonResponse('Cart updated', true, updated));
+    });
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };
 
@@ -236,6 +247,7 @@ export const getCartCount = async (req: IAuthRequest, res: Response): Promise<vo
 export const removeFromCart = async (req: IAuthRequest, res: Response): Promise<void> => {
   const { product } = req.body;
   const user = req.user!;
+  await withLock(cartLockKey(user), async () => {
   const cart = await Cart.findOne({ user }).exec();
   if (!cart) { res.status(404).json(commonResponse('Cart not found', false, { products: [] })); return; }
 
@@ -261,6 +273,7 @@ export const removeFromCart = async (req: IAuthRequest, res: Response): Promise<
     { new: true }
   ).exec();
   res.status(201).json(commonResponse('Product removed', true, data));
+  });
 };
 
 export const emptyCart = async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -270,6 +283,7 @@ export const emptyCart = async (req: IAuthRequest, res: Response): Promise<void>
 
 export const removeCoupon = async (req: IAuthRequest, res: Response): Promise<void> => {
   const user = req.user!;
+  await withLock(cartLockKey(user), async () => {
   const cart = await Cart.findOne({ user }).exec();
   if (!cart) { res.status(404).json(commonResponse('Cart not found', false)); return; }
 
@@ -293,4 +307,5 @@ export const removeCoupon = async (req: IAuthRequest, res: Response): Promise<vo
     { new: true }
   ).exec();
   res.status(201).json(commonResponse('Coupon removed', true, data));
+  });
 };

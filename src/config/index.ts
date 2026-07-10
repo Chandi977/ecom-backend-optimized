@@ -67,6 +67,16 @@ export const config = {
     password: process.env.REDIS_PASSWORD || undefined,
   },
 
+  // Distributed lock helper + runtime deadlock/contention analyzer.
+  // Locks are defense-in-depth and fail-open: a Redis outage never blocks
+  // checkout (see src/utils/concurrency/lock.ts). Toggle off to disable entirely.
+  concurrency: {
+    lockEnabled: process.env.CONCURRENCY_LOCK_ENABLED !== 'false',
+    analyzerEnabled: process.env.CONCURRENCY_ANALYZER_ENABLED !== 'false',
+    lockTtlMs: parseInt(process.env.CONCURRENCY_LOCK_TTL_MS || '30000', 10),
+    lockWaitMs: parseInt(process.env.CONCURRENCY_LOCK_WAIT_MS || '5000', 10),
+  },
+
   // Firebase Cloud Messaging service-account credentials for mobile push.
   // Leave empty to keep push disabled (the in-app feed still works). When all
   // three are set, push.service activates FCM via the optional firebase-admin dep.

@@ -11,6 +11,7 @@ import { commonResponse } from "./utils/response";
 import { logger } from "./utils/logger";
 import rootRouter from "./routes/index";
 import { activityLogger } from "./middleware/activity-logger";
+import { concurrencyContext } from "./middleware/concurrency";
 import { setupSwagger } from "./swagger";
 import { initializeQueues } from "./queue";
 import { IAuthRequest } from "./types";
@@ -191,6 +192,10 @@ const startServer = async (): Promise<void> => {
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
+
+    // Establish a per-request lock context (flowId + heldLocks) so withLock in
+    // controllers/services gets reentrancy + cross-flow deadlock detection.
+    app.use(concurrencyContext);
 
     // Audit trail + API observability. Non-blocking; reads req.user set by route auth.
     app.use(activityLogger);
