@@ -8,6 +8,7 @@ import NotificationCampaign from './notification-campaign.model';
 import UserDevice from './user-device.model';
 import { TEMPLATE_DEFAULTS, seedTemplates } from './notification-template.service';
 import { dispatch } from './custom-notification.service';
+import { logger } from '../../utils/logger';
 
 /* ----------------------------- Template management ----------------------------- */
 
@@ -56,22 +57,29 @@ export const updateTemplate = async (req: IAuthRequest, res: Response): Promise<
     }
 
     const def = TEMPLATE_DEFAULTS[key];
+    const setOnInsert: Record<string, unknown> = {
+      key,
+      channel: def?.channel || 'inapp',
+    };
+    if (update.name === undefined) {
+      setOnInsert.name = def?.name ?? key;
+    }
     const data = await NotificationTemplate.findOneAndUpdate(
       { key },
       {
         $set: update,
         // Backfill required fields if the doc is created here for an unseeded key.
-        $setOnInsert: {
-          key,
-          channel: def?.channel || 'inapp',
-          name: update.name ?? def?.name ?? key,
-        },
+        $setOnInsert: setOnInsert,
       },
       { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
     ).exec();
 
     res.status(200).json(commonResponse('Template updated successfully', true, data));
   } catch (error) {
+    logger.error('Notification template update failed', {
+      key: req.params.key,
+      error: error instanceof Error ? error.message : 'Unknown',
+    });
     res.status(500).json(commonResponse('Internal Server Error', false));
   }
 };

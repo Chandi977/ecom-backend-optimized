@@ -1,13 +1,12 @@
 import { Worker, ConnectionOptions } from 'bullmq';
 import { logger } from '../utils/logger';
-import { bullConnection } from '../utils/redis';
+import { getBullConnection } from '../utils/redis';
 import { sendBackInStockNotifications } from '../services/notification.service';
 import { sendPush } from '../modules/notification/push.service';
 import { dispatch, IDispatchOptions } from '../modules/notification/custom-notification.service';
 
-const connection: ConnectionOptions = bullConnection as ConnectionOptions;
-
 export const startNotificationWorker = (): Worker => {
+  const connection: ConnectionOptions = getBullConnection() as ConnectionOptions;
   const worker = new Worker('notification', async (job) => {
     logger.info(`Processing notification job: ${job.id} - ${job.name}`);
     switch (job.name) {

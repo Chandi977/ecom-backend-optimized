@@ -3,11 +3,9 @@ import mongoose from 'mongoose';
 import { config } from '../config';
 import { sendEmail } from '../utils/mailer';
 import { logger } from '../utils/logger';
-import { bullConnection } from '../utils/redis';
+import { getBullConnection } from '../utils/redis';
 import { Product } from '../models';
 import { renderEmail } from '../modules/notification/notification-template.service';
-
-const connection: ConnectionOptions = bullConnection as ConnectionOptions;
 
 // Base HTML layout wrapper for email templates
 const buildEmailLayout = (title: string, contentHtml: string): string => `<!DOCTYPE html>
@@ -416,6 +414,7 @@ const emailHandlers: Record<string, (data: Record<string, any>) => Promise<void>
 };
 
 export const startEmailWorker = (): Worker => {
+  const connection: ConnectionOptions = getBullConnection() as ConnectionOptions;
   const worker = new Worker('email', async (job) => {
     const handler = emailHandlers[job.name];
     if (handler) {

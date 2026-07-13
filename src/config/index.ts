@@ -62,9 +62,19 @@ export const config = {
   },
 
   redis: {
+    // Local Redis target — preferred whenever it is actually reachable.
     host: process.env.REDIS_HOST || '127.0.0.1',
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD || undefined,
+    // Remote fallback (e.g. Upstash) used automatically when local is down.
+    // Accepts a redis:// or rediss:// (TLS) URL such as Upstash's connection
+    // string: rediss://default:<password>@<host>:6379
+    url: process.env.UPSTASH_REDIS_URL || process.env.REDIS_URL || '',
+    // Selection mode: 'auto' (default) probes local then falls back to the URL;
+    // 'local' / 'upstash' force one target regardless of the probe.
+    target: (process.env.REDIS_TARGET || 'auto').trim().toLowerCase(),
+    // How long the local liveness probe waits before deciding local is absent.
+    probeTimeoutMs: parseInt(process.env.REDIS_PROBE_TIMEOUT_MS || '1000', 10),
   },
 
   // Distributed lock helper + runtime deadlock/contention analyzer.

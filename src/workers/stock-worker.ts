@@ -1,12 +1,11 @@
 import { Worker, ConnectionOptions } from 'bullmq';
 import { logger } from '../utils/logger';
-import { bullConnection } from '../utils/redis';
+import { getBullConnection } from '../utils/redis';
 import { lockContextStorage } from '../utils/concurrency/lock';
 import { reduceStockForOrder, restoreStockForOrder } from '../services/stock.service';
 
-const connection: ConnectionOptions = bullConnection as ConnectionOptions;
-
 export const startStockWorker = (): Worker => {
+  const connection: ConnectionOptions = getBullConnection() as ConnectionOptions;
   const worker = new Worker('stock', async (job) => (
     lockContextStorage.run({ flowId: `job:${job.id}`, heldLocks: [] }, async () => {
       logger.info(`Processing stock job: ${job.id} - ${job.name}`);

@@ -4,6 +4,8 @@ export interface IPricingTier {
   number: number;
   price: number;
   original_price?: number;
+  price_regional?: number;
+  price_national?: number;
   stock_quantity?: number;
   discount?: number;
   pack_weight?: number;
@@ -25,6 +27,8 @@ const pricingTierSchema = new Schema<IPricingTier>(
     number: { type: Number, required: true },
     price: { type: Number, required: true },
     original_price: { type: Number },
+    price_regional: { type: Number },
+    price_national: { type: Number },
     stock_quantity: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     pack_weight: { type: Number },

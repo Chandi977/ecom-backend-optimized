@@ -146,6 +146,13 @@ export const getImage = async (req: IAuthRequest, res: Response): Promise<void> 
   try {
     const { image } = req.query;
     const url = await getSignedUrlForKey(image as string, IMAGE_SIGN_OPTIONS);
+
+    const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
+    if (!acceptsJson && url) {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      return res.redirect(302, url);
+    }
+
     res.status(200).json(commonResponse('image fetched', true, { url }));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };

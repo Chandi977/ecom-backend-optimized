@@ -133,6 +133,8 @@ const priceListItemSchema = z.object({
   number: coerceNum,
   price: coerceNum,
   original_price: coerceNum.optional(),
+  price_regional: coerceNum.optional(),
+  price_national: coerceNum.optional(),
   stock_quantity: coerceNum.default(0),
   discount: coerceNum.optional(),
   pack_weight: coerceNum.optional(),
@@ -246,6 +248,7 @@ export const createProductSchema = z.object({
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   product_id: z.string().optional(),
+  reviewed_on: z.string().optional(),
   adhesive: z.string().optional(),
   top_product: coerceBool.optional(),
   deal_product: coerceBool.optional(),
@@ -255,6 +258,7 @@ export const createProductSchema = z.object({
   images: z.array(z.union([z.string(), z.object({ image: z.string().optional() })])).optional(),
   overview_fields: z.array(overviewFieldSchema).optional(),
   attributes: z.record(z.string(), z.unknown()).optional(),
+  field_visibility: z.record(z.string(), z.unknown()).optional(),
   specification: productSpecificationInputSchema.optional(),
   pricing: pricingInputSchema.optional(),
   inventory: inventoryInputSchema.optional(),
@@ -304,6 +308,7 @@ export const updateProductSchema = z.object({
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   product_id: z.string().optional(),
+  reviewed_on: z.string().optional(),
   adhesive: z.string().optional(),
   top_product: coerceBool.optional(),
   deal_product: coerceBool.optional(),
@@ -313,6 +318,7 @@ export const updateProductSchema = z.object({
   images: z.array(z.union([z.string(), z.object({ image: z.string().optional() })])).optional(),
   overview_fields: z.array(overviewFieldSchema).optional(),
   attributes: z.record(z.string(), z.unknown()).optional(),
+  field_visibility: z.record(z.string(), z.unknown()).optional(),
   specification: productSpecificationInputSchema.optional(),
   pricing: pricingInputSchema.optional(),
   inventory: inventoryInputSchema.optional(),
@@ -429,6 +435,7 @@ export const createSubCategorySchema = z.object({
   tax_category: z.string().optional(),
   delivery_time: z.string().optional(),
   common_attributes: z.record(z.string(), z.unknown()).optional(),
+  pack_sizes: z.array(z.number()).optional(),
 });
 
 export const updateSubCategorySchema = z.object({
@@ -442,10 +449,11 @@ export const updateSubCategorySchema = z.object({
   tax_category: z.string().optional(),
   delivery_time: z.string().optional(),
   common_attributes: z.record(z.string(), z.unknown()).optional(),
+  pack_sizes: z.array(z.number()).optional(),
 });
 
 export const deleteSubCategorySchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── Brand ──────────────────────────────────────────────────────────

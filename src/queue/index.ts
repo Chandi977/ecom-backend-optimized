@@ -1,22 +1,30 @@
 import { Queue, ConnectionOptions } from 'bullmq';
 import { logger } from '../utils/logger';
-import { bullConnection } from '../utils/redis';
+import { getBullConnection, initRedis } from '../utils/redis';
 
-const connection: ConnectionOptions = bullConnection as ConnectionOptions;
+/**
+ * Queues are built lazily by `initializeQueues()` *after* the Redis target has
+ * been resolved (local vs. fallback URL), so they always connect to the server
+ * that is actually up. These are live bindings — importers see the constructed
+ * instances once initialization has run (it runs during server/worker startup).
+ */
+export let emailQueue: Queue;
+export let orderQueue: Queue;
+export let stockQueue: Queue;
+export let notificationQueue: Queue;
 
-export const emailQueue = new Queue('email', { connection });
-export const orderQueue = new Queue('order', { connection });
-export const stockQueue = new Queue('stock', { connection });
-export const notificationQueue = new Queue('notification', { connection });
-
-const queues = [emailQueue, orderQueue, stockQueue, notificationQueue];
+let built = false;
 
 export const addJob = async (
-  queue: Queue,
+  queue: Queue | undefined,
   name: string,
   data: Record<string, unknown>,
   opts?: { delay?: number; attempts?: number; backoff?: { type: string; delay: number } }
 ): Promise<void> => {
+  if (!queue) {
+    logger.warn('addJob called before queues were initialized — dropping job', { job: name });
+    return;
+  }
   try {
     await queue.add(name, data, {
       attempts: opts?.attempts ?? 3,
@@ -35,7 +43,19 @@ export const addJob = async (
 };
 
 export const initializeQueues = async (): Promise<void> => {
-  for (const queue of queues) {
+  // Resolve local-vs-fallback first so every queue uses the same live target.
+  await initRedis();
+
+  if (!built) {
+    const connection = getBullConnection() as ConnectionOptions;
+    emailQueue = new Queue('email', { connection });
+    orderQueue = new Queue('order', { connection });
+    stockQueue = new Queue('stock', { connection });
+    notificationQueue = new Queue('notification', { connection });
+    built = true;
+  }
+
+  for (const queue of [emailQueue, orderQueue, stockQueue, notificationQueue]) {
     try {
       await queue.waitUntilReady();
       logger.info(`Queue initialized: ${queue.name}`);
@@ -46,4 +66,3 @@ export const initializeQueues = async (): Promise<void> => {
     }
   }
 };
-

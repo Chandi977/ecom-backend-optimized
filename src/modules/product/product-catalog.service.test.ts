@@ -1,4 +1,4 @@
-import { flattenProductCatalog } from './product-catalog.service';
+import { flattenProductCatalog, buildLegacyProductPayload } from './product-catalog.service';
 
 // Guards the category/sub-category -> product inheritance for the first-class
 // tax/fulfillment defaults (gst, hsn_code, sac_code, tax_category, delivery_time):
@@ -91,5 +91,20 @@ describe('flattenProductCatalog dynamic attributes (ProductSpecification sidecar
     })!;
     expect(out.gsm).toBe(140);
     expect(out.attributes).toEqual({ gsm: 140 });
+  });
+});
+
+// The admin Excel grid persists a per-product `reviewed_on` audit date. It must
+// survive the update write path (buildLegacyProductPayload -> $set) and be
+// returned by flatten so the grid re-reads what it saved.
+describe('reviewed_on round-trip (admin Excel grid audit date)', () => {
+  it('passes reviewed_on through buildLegacyProductPayload on update', () => {
+    const payload = buildLegacyProductPayload({ id: 'p1', reviewed_on: '23/9' });
+    expect(payload.reviewed_on).toBe('23/9');
+  });
+
+  it('surfaces reviewed_on via flattenProductCatalog', () => {
+    const out = flattenProductCatalog({ _id: 'p1', name: 'Box', reviewed_on: '23/9' })!;
+    expect(out.reviewed_on).toBe('23/9');
   });
 });

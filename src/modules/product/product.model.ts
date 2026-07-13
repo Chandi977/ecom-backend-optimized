@@ -19,6 +19,12 @@ const priceListItemSchema = new Schema(
     original_price: {
       type: Number,
     },
+    price_regional: {
+      type: Number,
+    },
+    price_national: {
+      type: Number,
+    },
     stock_quantity: {
       type: Number,
       default: 0,
@@ -143,6 +149,9 @@ const productSchema = new Schema<IProductDocument>(
     material: { type: String },
     color: { type: String },
     product_id: { type: String },
+    // Admin-internal catalog audit date (free-form, e.g. "23/9"). Not shown on
+    // storefront/mobile — surfaced by the admin Excel grid to track review status.
+    reviewed_on: { type: String },
     top_product: { type: Boolean, default: false },
     deal_product: { type: Boolean, default: false },
     meta_title: { type: String },

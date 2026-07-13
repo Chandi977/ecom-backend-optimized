@@ -1,14 +1,13 @@
 import { QueueEvents, Worker, ConnectionOptions } from 'bullmq';
 import { logger } from '../utils/logger';
-import { bullConnection } from '../utils/redis';
+import { getBullConnection } from '../utils/redis';
 import { lockContextStorage } from '../utils/concurrency/lock';
 import { stockQueue } from '../queue';
 import { finalizeVerifiedPayment, markPaymentFailed, processNewOrder } from '../services/order.service';
 
-const connection: ConnectionOptions = bullConnection as ConnectionOptions;
-const stockQueueEvents = new QueueEvents('stock', { connection });
-
 export const startOrderWorker = (): Worker => {
+  const connection: ConnectionOptions = getBullConnection() as ConnectionOptions;
+  const stockQueueEvents = new QueueEvents('stock', { connection });
   const worker = new Worker('order', async (job) => (
     // Run each job in its own lock context so withLock in the services gets a
     // stable flowId + per-flow heldLocks for reentrancy / deadlock detection.
