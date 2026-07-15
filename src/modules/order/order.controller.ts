@@ -384,6 +384,13 @@ export const updatePaymentStatus = async (req: IAuthRequest, res: Response): Pro
     res.status(200).json(commonResponse(requestedVerification ? 'Payment verification queued' : 'Payment updated', true, data));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error';
+    logger.warn('Payment status update failed', {
+      orderId: req.body?._id,
+      razorpayOrderId: req.body?.razorpayOrderId,
+      razorpayPaymentId: req.body?.razorpayPaymentId,
+      hasSignature: Boolean(req.body?.razorpaySignature),
+      error: message,
+    });
     res.status(400).json(commonResponse(message, false));
   }
 };
