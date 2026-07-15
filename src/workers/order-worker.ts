@@ -21,7 +21,7 @@ export const startOrderWorker = (): Worker => {
           const orderId = String(job.data.orderId);
           const stockJob = await stockQueue.add('reduce-stock', { orderId }, {
             // Stable jobId so a retried/duplicated finalize dedupes to one stock job.
-            jobId: `reduce-stock:${orderId}`,
+            jobId: `reduce-stock-${orderId}`,
             attempts: 3,
             backoff: { type: 'exponential', delay: 2000 },
             removeOnComplete: { age: 3600, count: 100 },

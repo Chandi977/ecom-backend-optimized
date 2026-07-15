@@ -86,7 +86,7 @@ const verifyRazorpayPayment = async (payload: Record<string, unknown>, existingO
 
 const queuePaymentFinalization = async (orderId: string): Promise<void> => {
   await orderQueue.add('finalize-payment-verified', { orderId }, {
-    jobId: `finalize-payment-verified:${orderId}`,
+    jobId: `finalize-payment-verified-${orderId}`,
     attempts: 3,
     backoff: { type: 'exponential', delay: 2000 },
     removeOnComplete: { age: 3600, count: 100 },
