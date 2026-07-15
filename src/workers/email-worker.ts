@@ -57,7 +57,19 @@ const buildEmailLayout = (title: string, contentHtml: string): string => `<!DOCT
     .order-table th { text-align:left; padding:14px 12px; background:#f8fafc; border-bottom:1px solid #e2e8f0; color:#102050; font-size:12px; text-transform:uppercase; letter-spacing:.35px; font-weight:800; }
     .order-table td { padding:14px 12px; border-bottom:1px solid #edf2f7; color:#334155; font-size:14px; vertical-align:middle; }
     .order-table tr.total-row td { border-top:2px solid #102050; border-bottom:none; font-weight:800; font-size:16px; color:#102050; background:#f8fafc; }
-    @media only screen and (max-width:600px){ .email-bg{padding:0;background:#fff}.container{border-radius:0;border:none;box-shadow:none}.topbar{padding:9px 14px;font-size:11px}.header{padding:22px 18px 18px}.logo{max-height:42px!important}.brand-text{font-size:20px!important;line-height:24px!important}.trust-strip td{display:block;width:100%!important;box-sizing:border-box;padding:8px 12px!important;border-bottom:1px solid #ffe7e7}.content{padding:28px 18px 24px}.footer{padding:24px 18px}.footer-links a{display:inline-block;margin:5px 7px}h1{font-size:22px!important;line-height:1.3!important}h2{font-size:18px!important}h3{font-size:16px!important}p{font-size:14px!important;line-height:1.62!important}.card,.highlight-card,.otp-code{padding:18px!important;border-radius:14px!important}.btn{display:block!important;text-align:center!important;padding:14px 18px!important}.order-table{min-width:540px}.order-table th,.order-table td{padding:10px 8px!important;font-size:12px!important}.order-table th{font-size:10px!important;white-space:nowrap}.order-table tr.total-row td{font-size:14px!important}.delivery-table,.delivery-table tbody,.delivery-table tr,.delivery-table td{display:block!important;width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.otp-code{font-size:24px!important;letter-spacing:4px!important;padding:12px 16px!important} }
+    .order-items-list { margin:18px 0 18px; }
+    .order-item-card { border:1px solid #e4eaf4; border-radius:14px; background:#fff; padding:16px; margin-bottom:12px; }
+    .order-item-name { font-size:15px; line-height:1.4; font-weight:800; color:#102050; margin-bottom:4px; }
+    .order-item-meta { font-size:12.5px; line-height:1.5; color:#64748b; margin-bottom:12px; }
+    .order-item-stat { padding:8px 0; border-top:1px solid #edf2f7; }
+    .order-item-stat-label { font-size:11px; text-transform:uppercase; letter-spacing:.35px; font-weight:800; color:#64748b; }
+    .order-item-stat-value { font-size:14px; font-weight:700; color:#102050; text-align:right; }
+    .order-summary { width:100%; border-collapse:collapse; border:1px solid #e4eaf4; border-radius:14px; overflow:hidden; margin:8px 0 24px; background:#fff; }
+    .order-summary td { padding:12px 14px; border-bottom:1px solid #edf2f7; font-size:14px; color:#475569; }
+    .order-summary .summary-label { font-weight:700; }
+    .order-summary .summary-value { text-align:right; font-weight:800; color:#102050; }
+    .order-summary .summary-total td { border-bottom:none; border-top:2px solid #102050; font-size:16px; background:#f8fafc; color:#102050; }
+    @media only screen and (max-width:600px){ .email-bg{padding:0;background:#fff}.container{border-radius:0;border:none;box-shadow:none}.topbar{padding:9px 14px;font-size:11px}.header{padding:22px 18px 18px}.logo{max-height:42px!important}.brand-text{font-size:20px!important;line-height:24px!important}.trust-strip td{display:block;width:100%!important;box-sizing:border-box;padding:8px 12px!important;border-bottom:1px solid #ffe7e7}.content{padding:28px 18px 24px}.footer{padding:24px 18px}.footer-links a{display:inline-block;margin:5px 7px}h1{font-size:22px!important;line-height:1.3!important}h2{font-size:18px!important}h3{font-size:16px!important}p{font-size:14px!important;line-height:1.62!important}.card,.highlight-card,.otp-code{padding:18px!important;border-radius:14px!important}.btn{display:block!important;text-align:center!important;padding:14px 18px!important}.order-table{min-width:0!important}.order-table th,.order-table td{padding:10px 8px!important;font-size:12px!important}.order-table th{font-size:10px!important;white-space:nowrap}.order-table tr.total-row td{font-size:14px!important}.order-item-card{padding:14px!important;border-radius:12px!important}.order-item-stat td{display:table-cell!important;width:50%!important}.order-summary td{padding:11px 12px!important;font-size:13px!important}.order-summary .summary-total td{font-size:15px!important}.delivery-table,.delivery-table tbody,.delivery-table tr,.delivery-table td{display:block!important;width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.otp-code{font-size:24px!important;letter-spacing:4px!important;padding:12px 16px!important} }
   </style>
 </head>
 <body>
@@ -227,6 +239,7 @@ export const buildOrderHtml = async (
   const displayTotalPaid = totalPaid || toMoney(displaySubtotalEx + displayShippingEx + totalGstCombined);
 
   let itemsHtml = '';
+  let itemsCardsHtml = '';
   for (const item of items) {
     const qty = toMoney(item.quantity);
     const price = toMoney(item.price);
@@ -256,6 +269,31 @@ export const buildOrderHtml = async (
         <td style="padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 500;">${formatCurrency(displayTotal)}</td>
       </tr>
     `;
+
+    itemsCardsHtml += `
+      <div class="order-item-card">
+        <div class="order-item-name">${item.name}</div>
+        <div class="order-item-meta">Pack Size: ${packSize} pcs</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr class="order-item-stat">
+            <td class="order-item-stat-label">Qty</td>
+            <td class="order-item-stat-value">${qty}</td>
+          </tr>
+          <tr class="order-item-stat">
+            <td class="order-item-stat-label">Price</td>
+            <td class="order-item-stat-value">${formatCurrency(displayPrice)}</td>
+          </tr>
+          <tr class="order-item-stat">
+            <td class="order-item-stat-label">GST</td>
+            <td class="order-item-stat-value">${gstPct} (${formatCurrency(itemGstAmount)})</td>
+          </tr>
+          <tr class="order-item-stat">
+            <td class="order-item-stat-label">Total</td>
+            <td class="order-item-stat-value">${formatCurrency(displayTotal)}</td>
+          </tr>
+        </table>
+      </div>
+    `;
   }
 
   const addressHtml = [
@@ -283,6 +321,7 @@ export const buildOrderHtml = async (
     orderNumber: order.orderId || order._id,
     statusDetailsHtml,
     itemsHtml,
+    itemsCardsHtml,
     displaySubtotalEx: formatCurrency(displaySubtotalEx),
     displayShippingEx: formatCurrency(displayShippingEx),
     totalGstCombined: formatCurrency(totalGstCombined),

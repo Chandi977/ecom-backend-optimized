@@ -162,12 +162,10 @@ export const createOrder = async (req: IAuthRequest, res: Response): Promise<voi
     }
 
     if (data) {
-      await addJob(emailQueue, 'order-placed', { to: data.email, subject: 'Your Order has been placed', order: data });
+      // No customer-facing email or push here: the order exists but is unpaid, and
+      // telling the customer "your order has been placed" before payment is confirmed
+      // is misleading. Both are sent from finalizeVerifiedPayment instead.
       await addJob(orderQueue, 'process-new-order', { orderId: data._id });
-      // In-app/push notification to the order owner (no-op for guest orders).
-      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-placed-push',
-        { name: data.name, orderId: data.orderId, status: data.status },
-        { type: 'order', orderId: String(data._id) });
       res.status(201).json(commonResponse('Order created', true, data));
     } else {
       res.status(500).json(commonResponse('Failed to create order', false));
