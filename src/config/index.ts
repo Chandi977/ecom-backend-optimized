@@ -17,15 +17,16 @@ export const config = {
   },
 
   aws: {
-    bucketName: process.env.AWS_BUCKET_NAME || '',
-    region: process.env.AWS_BUCKET_REGION || '',
-    accessKey: process.env.AWS_ACCESS_KEY || '',
-    secretKey: process.env.AWS_SECRET_KEY || '',
+    bucketName: (process.env.AWS_BUCKET_NAME || '').trim(),
+    region: (process.env.AWS_BUCKET_REGION || '').trim(),
+    accessKey: (process.env.AWS_ACCESS_KEY || '').trim(),
+    secretKey: (process.env.AWS_SECRET_KEY || '').trim(),
     // Optional CloudFront/CDN domain that fronts the image bucket, e.g.
     // "dxxxx.cloudfront.net" or "images.prempackaging.com". When set, image URLs
     // are served as plain CDN URLs (edge-cached, no per-request signing). When
     // empty (default), the app keeps generating presigned S3 URLs.
-    cdnDomain: (process.env.CDN_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/+$/, ''),
+    cdnDomain: (process.env.CDN_DOMAIN || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''),
+    cdnEnabled: process.env.CDN_ENABLED === 'true',
   },
 
   smtp: {

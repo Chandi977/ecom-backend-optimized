@@ -1,11 +1,12 @@
 import { Worker, ConnectionOptions } from 'bullmq';
 import mongoose from 'mongoose';
 import { config } from '../config';
-import { sendEmail } from '../utils/mailer';
+import { sendEmail, verifyMailer } from '../utils/mailer';
 import { logger } from '../utils/logger';
 import { getBullConnection } from '../utils/redis';
 import { Product } from '../models';
 import { renderEmail } from '../modules/notification/notification-template.service';
+import { bootWorkerProcess } from './boot';
 
 // Base HTML layout wrapper for email templates
 const buildEmailLayout = (title: string, contentHtml: string): string => `<!DOCTYPE html>
@@ -342,62 +343,72 @@ export const buildBroadcastHtml = (title: string, body: string): string => {
   return buildEmailLayout(title || 'Prem Packaging', content);
 };
 
-const emailHandlers: Record<string, (data: Record<string, any>) => Promise<void>> = {
+// sendEmail returns false on SMTP failure; throwing here is what makes BullMQ
+// retry the job (and lets the inline dispatcher report failure) instead of
+// marking a never-delivered email as completed.
+const sendOrThrow = async (options: { to: string | string[]; subject: string; html: string }): Promise<void> => {
+  const sent = await sendEmail(options);
+  if (!sent) {
+    throw new Error(`SMTP send failed for "${options.subject}"`);
+  }
+};
+
+export const emailHandlers: Record<string, (data: Record<string, any>) => Promise<void>> = {
   'send-verification-email': async (data) => {
     const { subject, html } = await buildVerificationHtml(data.token as string, data.subject as string);
-    await sendEmail({ to: data.to as string, subject, html });
+    await sendOrThrow({ to: data.to as string, subject, html });
   },
   'send-welcome-email': async (data) => {
     const { subject, html } = await buildWelcomeHtml(data.name as string, data.subject as string);
-    await sendEmail({ to: data.to as string, subject, html });
+    await sendOrThrow({ to: data.to as string, subject, html });
   },
   'forgot-password': async (data) => {
     const { subject, html } = await buildForgotPasswordHtml(data.otp as string, data.subject as string);
-    await sendEmail({ to: data.to as string, subject, html });
+    await sendOrThrow({ to: data.to as string, subject, html });
   },
   'order-placed': async (data) => {
     const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
-    await sendEmail({ to: data.to as string, subject, html });
+    await sendOrThrow({ to: data.to as string, subject, html });
   },
   'order-shipped': async (data) => {
     const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-shipped');
-    await sendEmail({ to: data.to as string, subject, html });
+    await sendOrThrow({ to: data.to as string, subject, html });
   },
   'order-delivered': async (data) => {
     const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-delivered');
-    await sendEmail({ to: data.to as string, subject, html });
+    await sendOrThrow({ to: data.to as string, subject, html });
   },
   'payment-received': async (data) => {
     if (data.to) {
       const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
-      await sendEmail({ to: data.to as string, subject, html });
+      await sendOrThrow({ to: data.to as string, subject, html });
     }
   },
   'payment-confirmed': async (data) => {
     const adminEmail = config.smtp.user;
     if (adminEmail) {
       const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
-      await sendEmail({ to: adminEmail, subject, html });
+      await sendOrThrow({ to: adminEmail, subject, html });
     }
   },
   'payment-failed': async (data) => {
     if (data.to) {
       const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
-      await sendEmail({ to: data.to as string, subject, html });
+      await sendOrThrow({ to: data.to as string, subject, html });
     }
   },
   'payment-utr-submitted': async (data) => {
     const adminEmail = config.smtp.user;
     if (adminEmail) {
       const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
-      await sendEmail({ to: adminEmail, subject, html });
+      await sendOrThrow({ to: adminEmail, subject, html });
     }
   },
   'back-in-stock': async (data) => {
     const emails = data.emails as string[];
     if (Array.isArray(emails) && emails.length > 0) {
       const { subject, html } = await buildBackInStockHtml(data.productId as string, data.subject as string);
-      await sendEmail({ to: emails, subject, html });
+      await sendOrThrow({ to: emails, subject, html });
     }
   },
   'custom-broadcast': async (data) => {
@@ -406,8 +417,13 @@ const emailHandlers: Record<string, (data: Record<string, any>) => Promise<void>
       const subject = (data.subject as string) || 'Update from Prem Packaging';
       const html = buildBroadcastHtml(subject, data.body as string);
       // Send individually so recipient addresses are never exposed to each other.
+      // Track failures but keep going so one bad address doesn't stop the batch.
+      let failed = 0;
       for (const to of emails) {
-        await sendEmail({ to, subject, html });
+        if (!(await sendEmail({ to, subject, html }))) failed += 1;
+      }
+      if (failed > 0) {
+        throw new Error(`custom-broadcast: ${failed}/${emails.length} sends failed`);
       }
     }
   },
@@ -434,5 +450,14 @@ export const startEmailWorker = (): Worker => {
   });
 
   logger.info('Email worker started');
+  // Fail fast in the logs when SMTP credentials are wrong — otherwise every
+  // job just retries and dies quietly.
+  verifyMailer().catch(() => { /* already logged inside */ });
   return worker;
 };
+
+// PM2 runs this file directly (see ecosystem.config.js) — boot everything the
+// worker needs when executed as the process entry point.
+if (require.main === module) {
+  bootWorkerProcess('email', startEmailWorker);
+}

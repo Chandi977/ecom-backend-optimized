@@ -6,7 +6,7 @@
  *
  * ADDITIVE + idempotent:
  * - creates/updates the top-level "Main" category
- * - creates/assigns Corrugated Box, Paper Bag and Poly Bag as sub-categories of Main
+ * - creates/assigns Corrugated Box, Paper Bag, Poly Bag and Carry Bag as sub-categories of Main
  * - leaves the existing leaf Category records in place
  * - does NOT relink products, because storefront listing pages still filter by
  *   the existing category IDs and category-level spec schemas
@@ -27,6 +27,7 @@ const MAIN_SUBCATEGORIES = [
   { name: 'Corrugated Box', sub_category_id: '01' },
   { name: 'Paper Bag', sub_category_id: '02' },
   { name: 'Poly Bag', sub_category_id: '03' },
+  { name: 'Carry Bag', sub_category_id: '04' },
 ];
 
 const slugFor = (name: string): string => slugify(name);

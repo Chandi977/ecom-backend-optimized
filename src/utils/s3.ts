@@ -184,7 +184,7 @@ export const getSignedUrlForKey = async (
 
   // CDN mode: CloudFront serves the (already-ensured) object from the edge.
   // No signing, no expiry — the URL is stable and fully browser/edge cacheable.
-  if (config.aws.cdnDomain) {
+  if (config.aws.cdnEnabled && config.aws.cdnDomain) {
     return cdnUrlForKey(keyToSign);
   }
 

@@ -26,11 +26,12 @@ jest.mock('../auth/auth.model', () => ({
   default: { findOne: jest.fn() },
 }));
 
-const addJobMock = jest.fn().mockResolvedValue(undefined);
-jest.mock('../../queue', () => ({
+// The controller delivers emails through dispatchEmail (queue with inline
+// fallback); mock it as a successful delivery so no real SMTP send happens.
+const dispatchEmailMock = jest.fn().mockResolvedValue(true);
+jest.mock('../../queue/email-dispatch', () => ({
   __esModule: true,
-  addJob: (...args: unknown[]) => addJobMock(...args),
-  emailQueue: { name: 'email' },
+  dispatchEmail: (...args: unknown[]) => dispatchEmailMock(...args),
 }));
 
 import { forgotPassword, verifyOTP, resetPassword } from './password-reset.controller';
@@ -78,9 +79,9 @@ describe('forgotPassword', () => {
     expect(saveMock).toHaveBeenCalledTimes(1);
     expect(constructedDocs).toHaveLength(1);
 
-    // The plaintext OTP is the 6-digit code dispatched to the email queue.
-    expect(addJobMock).toHaveBeenCalledTimes(1);
-    const emailedOtp = (addJobMock.mock.calls[0][2] as { otp: string }).otp;
+    // The plaintext OTP is the 6-digit code dispatched to the email pipeline.
+    expect(dispatchEmailMock).toHaveBeenCalledTimes(1);
+    const emailedOtp = (dispatchEmailMock.mock.calls[0][1] as { otp: string }).otp;
     expect(emailedOtp).toMatch(/^\d{6}$/);
 
     // The stored value must be a hash, never the plaintext OTP.

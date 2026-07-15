@@ -14,6 +14,7 @@ import { activityLogger } from "./middleware/activity-logger";
 import { concurrencyContext } from "./middleware/concurrency";
 import { setupSwagger } from "./swagger";
 import { initializeQueues } from "./queue";
+import { startAllWorkers } from "./workers";
 import { IAuthRequest } from "./types";
 import { cleanupAbandonedOrders } from "./modules/order/order.controller";
 import { seedTemplates } from "./modules/notification/notification-template.service";
@@ -140,6 +141,17 @@ const startServer = async (): Promise<void> => {
     await initializeQueues();
     // Seed default notification templates so the admin can edit them (idempotent).
     await seedTemplates();
+
+    // Run the BullMQ workers inside the API process unless explicitly disabled
+    // (or in production, where PM2 runs dedicated worker processes — see
+    // ecosystem.config.js). Without this, `yarn dev` queued emails (signup
+    // verification, password-reset OTPs) that nothing ever processed.
+    const workersInProcess = process.env.START_WORKERS_IN_PROCESS
+      ? process.env.START_WORKERS_IN_PROCESS === "true"
+      : config.nodeEnv !== "production";
+    if (workersInProcess) {
+      startAllWorkers();
+    }
 
     const trustProxy = parseTrustProxy(process.env.TRUST_PROXY, config.nodeEnv);
     app.set("trust proxy", trustProxy);

@@ -1,5 +1,6 @@
 import { Worker, ConnectionOptions } from 'bullmq';
 import { logger } from '../utils/logger';
+import { bootWorkerProcess } from './boot';
 import { getBullConnection } from '../utils/redis';
 import { lockContextStorage } from '../utils/concurrency/lock';
 import { reduceStockForOrder, restoreStockForOrder } from '../services/stock.service';
@@ -31,3 +32,9 @@ export const startStockWorker = (): Worker => {
   logger.info('Stock worker started');
   return worker;
 };
+
+// PM2 runs this file directly (see ecosystem.config.js) — boot everything the
+// worker needs when executed as the process entry point.
+if (require.main === module) {
+  bootWorkerProcess('stock', startStockWorker);
+}

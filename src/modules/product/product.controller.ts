@@ -26,8 +26,8 @@ import {
 } from './product-catalog.service';
 
 const IMAGE_SIGN_OPTIONS: IImageSignOptions = { expiresIn: 3600 };
-// Card/list views get lightweight resized thumbnails; detail keeps full-size.
-const CARD_IMAGE_SIGN_OPTIONS: IImageSignOptions = { expiresIn: 3600, width: 400 };
+// Keep list images on the original key until CDN derivative access is explicitly verified.
+const CARD_IMAGE_SIGN_OPTIONS: IImageSignOptions = IMAGE_SIGN_OPTIONS;
 const MAX_PAGE_LIMIT = 100;
 
 const normalizeSlugValue = (value?: string): string | undefined => {

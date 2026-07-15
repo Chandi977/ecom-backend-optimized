@@ -6,6 +6,9 @@ const emailStr = z.string().email('Invalid email format');
 const phoneStr = z.string().min(7, 'Phone too short').max(15, 'Phone too long').optional();
 const coerceNum = z.coerce.number();
 const coerceBool = z.coerce.boolean();
+// Accepts a string or number and normalizes to string. Admin spec forms type
+// count-like fields (e.g. label_in_roll) as number inputs, so both arrive here.
+const stringLike = z.union([z.string(), z.number()]).transform((value) => String(value));
 const stringOrStringArray = z.union([z.string(), z.array(z.string())]);
 const numericRange = z.union([
   coerceNum,
@@ -168,7 +171,7 @@ const productSpecificationInputSchema = z.object({
   thickness: coerceNum.optional(),
   thickness_micron: coerceNum.optional(),
   gusset: coerceNum.optional(),
-  label_in_roll: z.string().optional(),
+  label_in_roll: stringLike.optional(),
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   weight: coerceNum.optional(),
@@ -243,8 +246,8 @@ export const createProductSchema = z.object({
   thickness_micron: coerceNum.optional(),
   gusset: coerceNum.optional(),
   print: z.string().optional(),
-  label_in_roll: z.string().optional(),
-  label_in_role: z.string().optional(),
+  label_in_roll: stringLike.optional(),
+  label_in_role: stringLike.optional(),
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   product_id: z.string().optional(),
@@ -303,8 +306,8 @@ export const updateProductSchema = z.object({
   thickness_micron: coerceNum.optional(),
   gusset: coerceNum.optional(),
   print: z.string().optional(),
-  label_in_roll: z.string().optional(),
-  label_in_role: z.string().optional(),
+  label_in_roll: stringLike.optional(),
+  label_in_role: stringLike.optional(),
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   product_id: z.string().optional(),
