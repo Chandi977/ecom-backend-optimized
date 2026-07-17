@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import { config } from '../config';
 import { IAuthPayload } from '../types';
+import { logger } from './logger';
 import { strictRedisGet, strictRedisSet, strictRedisSetNx } from './redis';
 
 const ACCESS_TOKEN_EXPIRES_IN = '1d';
@@ -74,11 +75,25 @@ export const verifyRefreshToken = (token: string): IAuthTokenPayload => {
   return payload;
 };
 
+let warnedDenylistUnavailable = false;
+
+// Fail OPEN when the revocation store is down: the denylist is defense-in-depth
+// for explicit logout/rotation, and a Redis outage must not 503 every
+// authenticated request (JWT signature + expiry are still fully enforced).
+// This matches the codebase's fail-open stance for locks/caching. Writes
+// (blacklistToken / claimRefreshTokenForRotation) stay fail-closed because
+// failing open there would let a revoked or replayed token be re-accepted.
 export const isTokenDenylisted = async (kind: TokenKind, token: string): Promise<boolean> => {
   try {
     return Boolean(await strictRedisGet(denylistKey(kind, token)));
-  } catch {
-    throw new TokenRevocationStoreError();
+  } catch (error) {
+    if (!warnedDenylistUnavailable) {
+      warnedDenylistUnavailable = true;
+      logger.warn('Token denylist store unavailable — skipping revocation check (fail-open)', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return false;
   }
 };
 

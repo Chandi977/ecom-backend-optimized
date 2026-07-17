@@ -3,6 +3,8 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   HeadObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import sharp from 'sharp';
@@ -182,7 +184,7 @@ export const getSignedUrlForKey = async (
 
   // CDN mode: CloudFront serves the (already-ensured) object from the edge.
   // No signing, no expiry — the URL is stable and fully browser/edge cacheable.
-  if (config.aws.cdnDomain) {
+  if (config.aws.cdnEnabled && config.aws.cdnDomain) {
     return cdnUrlForKey(keyToSign);
   }
 
@@ -266,4 +268,78 @@ export const uploadToS3 = async (
     ContentType: contentType,
   });
   await s3Client.send(command);
+};
+
+// Normalize an image source (raw key, CDN url, or { image } object) to the S3
+// object key, or '' when it is not a key in our bucket. Exposed so callers can
+// diff/compare product image lists by their underlying keys.
+export const resolveS3Key = (imageSource: unknown): string => {
+  const key = getS3KeyFromImageSource(imageSource);
+  return key || '';
+};
+
+// Enumerate the derivative "width folders" (e.g. `derivatives/w400/`) currently
+// in the bucket, so a delete can remove every resized thumbnail of an original
+// without hard-coding the widths.
+const listDerivativeWidthPrefixes = async (): Promise<string[]> => {
+  try {
+    const listed = await s3Client.send(
+      new ListObjectsV2Command({
+        Bucket: config.aws.bucketName,
+        Prefix: `${DERIVATIVE_PREFIX}/`,
+        Delimiter: '/',
+      }),
+    );
+    return (listed.CommonPrefixes || [])
+      .map((p) => p.Prefix)
+      .filter((p): p is string => !!p);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Permanently delete images from S3 so removed product photos stop consuming
+ * storage. Accepts raw keys, CDN urls, or `{ image }` objects; anything that is
+ * not a key in our bucket is ignored. Each original is deleted along with every
+ * derivative thumbnail (`derivatives/w<width>/<key>.webp`). Best-effort — never
+ * throws, so an S3 hiccup can't fail the product save/delete that triggered it.
+ */
+export const deleteFromS3 = async (imageSources: unknown[]): Promise<void> => {
+  const keys = Array.from(
+    new Set(
+      (imageSources || [])
+        .map((src) => getS3KeyFromImageSource(src))
+        .filter((k): k is string => !!k),
+    ),
+  );
+  if (keys.length === 0) return;
+
+  const widthPrefixes = await listDerivativeWidthPrefixes();
+
+  const objects: { Key: string }[] = [];
+  for (const key of keys) {
+    objects.push({ Key: key });
+    for (const prefix of widthPrefixes) {
+      objects.push({ Key: `${prefix}${key}.webp` });
+    }
+  }
+
+  try {
+    // S3 DeleteObjects accepts up to 1000 keys per request.
+    for (let i = 0; i < objects.length; i += 1000) {
+      await s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: config.aws.bucketName,
+          Delete: { Objects: objects.slice(i, i + 1000), Quiet: true },
+        }),
+      );
+    }
+    logger.info('Deleted S3 objects for removed images', { keys });
+  } catch (error) {
+    logger.warn('Failed to delete one or more S3 objects', {
+      keys,
+      error: error instanceof Error ? error.message : 'Unknown',
+    });
+  }
 };

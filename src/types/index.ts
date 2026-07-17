@@ -91,6 +91,9 @@ export interface IProduct {
   core_size?: number;
   pouch_weight?: number;
   product_id?: string;
+  // Admin-internal catalog audit date (free-form, e.g. "23/9"). Not rendered on
+  // storefront/mobile — used by the admin Excel grid to track review status.
+  reviewed_on?: string;
   top_product?: boolean;
   deal_product?: boolean;
   meta_title?: string;
@@ -194,6 +197,8 @@ export interface IPriceListItem {
   number: number;
   price: number;
   original_price?: number;
+  price_regional?: number;
+  price_national?: number;
   stock_quantity: number;
   discount?: number;
   pack_weight?: number;

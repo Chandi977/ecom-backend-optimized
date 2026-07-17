@@ -7,7 +7,7 @@ import { hashPassword, comparePassword } from '../../utils/validators/password-h
 import { IAuthPayload, IAuthRequest } from '../../types';
 import { isFullAccessRole } from '../../config/rbac';
 import { logger } from '../../utils/logger';
-import { addJob, emailQueue } from '../../queue';
+import { dispatchEmail } from '../../queue/email-dispatch';
 import {
   blacklistToken,
   claimRefreshTokenForRotation,
@@ -35,6 +35,10 @@ const getGoogleAudiences = (): string[] => {
   );
   return [...new Set(values)];
 };
+
+// The user schema stores email_address lowercased; normalize lookups the same
+// way so "Foo@Bar.com" typed at login still finds the stored "foo@bar.com".
+const normalizeEmail = (email: unknown): string => String(email ?? '').trim().toLowerCase();
 
 const generateVerificationToken = (): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -94,7 +98,8 @@ const sendRevocationStoreUnavailable = (res: Response): void => {
 
 export const signup = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { first_name, last_name, email_address, password, mobile_number, role, gender, user_id } = req.body;
+    const { first_name, last_name, password, mobile_number, role, gender, user_id } = req.body;
+    const email_address = normalizeEmail(req.body.email_address);
 
     const existingUser = await User.findOne({ email_address }).exec();
     if (existingUser) {
@@ -102,10 +107,16 @@ export const signup = async (req: IAuthRequest, res: Response): Promise<void> =>
       return;
     }
 
-    // Security: only an authenticated full-access admin may assign a privileged role.
-    // Public/anonymous signups (and restricted roles) always create a plain 'user',
-    // closing the privilege-escalation hole where the role was trusted from the body.
-    const assignedRole = isFullAccessRole(req.userRole) && role ? role : 'user';
+    // Security: public signups can only create plain users. If the admin UI asks
+    // for a privileged role, fail loudly instead of silently creating a normal user.
+    const requestedRole = role || 'user';
+    if (requestedRole !== 'user' && !isFullAccessRole(req.userRole)) {
+      res.status(req.userRole ? 403 : 401).json(
+        commonResponse('Only an admin can create admin or catalog-manager accounts.', false)
+      );
+      return;
+    }
+    const assignedRole = isFullAccessRole(req.userRole) ? requestedRole : 'user';
 
     const verificationToken = generateVerificationToken();
     const hashedPassword = await hashPassword(password);
@@ -119,13 +130,30 @@ export const signup = async (req: IAuthRequest, res: Response): Promise<void> =>
 
     const savedUser = await newUser.save();
 
-    await addJob(emailQueue, 'send-verification-email', {
+    const emailSent = await dispatchEmail('send-verification-email', {
       to: savedUser.email_address,
       subject: 'Email verification OTP',
       token: verificationToken,
     });
+    if (!emailSent) {
+      logger.error('Signup verification email could not be delivered', { email: savedUser.email_address });
+    }
 
-    res.status(201).json(commonResponse('User created successfully', true, savedUser));
+    // Never echo the password hash or the verification OTP back to the client —
+    // returning the token would let anyone verify without reading the email.
+    const safeUser = {
+      _id: savedUser._id,
+      first_name: savedUser.first_name,
+      last_name: savedUser.last_name,
+      email_address: savedUser.email_address,
+      mobile_number: savedUser.mobile_number,
+      role: savedUser.role,
+      gender: savedUser.gender,
+      isVerified: savedUser.isVerified,
+      createdAt: savedUser.createdAt,
+    };
+
+    res.status(201).json(commonResponse('User created successfully', true, safeUser));
   } catch (error) {
     logger.error('Signup error', { error: error instanceof Error ? error.message : 'Unknown' });
     res.status(500).json(commonResponse('Internal server error.', false));
@@ -134,7 +162,8 @@ export const signup = async (req: IAuthRequest, res: Response): Promise<void> =>
 
 export const signIn = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { email_address, password } = req.body;
+    const { password } = req.body;
+    const email_address = normalizeEmail(req.body.email_address);
 
     const user = await User.findOne({ email_address }).exec();
     if (!user) {
@@ -200,7 +229,7 @@ export const googleAuth = async (req: IAuthRequest, res: Response): Promise<void
 
       await user.save();
 
-      await addJob(emailQueue, 'send-welcome-email', {
+      await dispatchEmail('send-welcome-email', {
         to: user.email_address,
         subject: 'Welcome to Prem Industries',
         name: user.first_name,
@@ -408,7 +437,8 @@ export const updatePrivacyPreferences = async (req: IAuthRequest, res: Response)
 export const deleteUser = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.body;
-    const data = await User.deleteMany({ _id: { $in: id } }).exec();
+    const ids = Array.isArray(id) ? id : [id];
+    const data = await User.deleteMany({ _id: { $in: ids } }).exec();
     res.status(data.deletedCount > 0 ? 200 : 400).json(
       commonResponse(data.deletedCount > 0 ? 'User deleted' : 'User not found', data.deletedCount > 0, data)
     );
@@ -487,7 +517,8 @@ export const CountAdmin = async (req: IAuthRequest, res: Response): Promise<void
 
 export const verifyEmail = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { email_address, otp } = req.body;
+    const { otp } = req.body;
+    const email_address = normalizeEmail(req.body.email_address);
     if (!email_address || !otp) { res.status(400).json({ message: 'Email and OTP are required' }); return; }
     const user = await User.findOne({ email_address }).exec();
     if (!user) { res.status(404).json({ message: 'User not found' }); return; }
@@ -502,19 +533,24 @@ export const verifyEmail = async (req: IAuthRequest, res: Response): Promise<voi
 
 export const reVerifyEmail = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { email } = req.body;
+    const email = normalizeEmail(req.body.email);
     const user = await User.findOne({ email_address: email }).exec();
     if (!user) { res.status(404).json({ message: 'User not found' }); return; }
+    if (user.isVerified) { res.status(200).json({ message: 'User already verified' }); return; }
     const verificationToken = generateVerificationToken();
     user.verification_token = verificationToken;
     user.verification_token_expiry = new Date(Date.now() + 3600000);
     await user.save();
 
-    await addJob(emailQueue, 'send-verification-email', {
+    const emailSent = await dispatchEmail('send-verification-email', {
       to: user.email_address,
       subject: 'Email verification OTP',
       token: verificationToken,
     });
+    if (!emailSent) {
+      res.status(502).json({ message: 'Could not send the verification email. Please try again.' });
+      return;
+    }
 
     res.status(200).json({ message: 'Verification token sent' });
   } catch (error) {

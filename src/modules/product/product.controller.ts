@@ -8,7 +8,7 @@ import Brand from '../brand/brand.model';
 import SubCategory from '../subcategory/subcategory.model';
 import { commonResponse } from '../../utils/response';
 import { normalizeMojibakeInObject } from '../../utils/text-encoding';
-import { processImages, attachSignedImagesToProducts, getSignedUrlForKey, uploadToS3 } from '../../utils/s3';
+import { processImages, attachSignedImagesToProducts, getSignedUrlForKey, uploadToS3, deleteFromS3 } from '../../utils/s3';
 import { sanitizeOverviewFields } from '../../utils/overview-fields';
 import { sanitizeFieldVisibility } from '../../utils/field-visibility';
 
@@ -26,8 +26,8 @@ import {
 } from './product-catalog.service';
 
 const IMAGE_SIGN_OPTIONS: IImageSignOptions = { expiresIn: 3600 };
-// Card/list views get lightweight resized thumbnails; detail keeps full-size.
-const CARD_IMAGE_SIGN_OPTIONS: IImageSignOptions = { expiresIn: 3600, width: 400 };
+// Keep list images on the original key until CDN derivative access is explicitly verified.
+const CARD_IMAGE_SIGN_OPTIONS: IImageSignOptions = IMAGE_SIGN_OPTIONS;
 const MAX_PAGE_LIMIT = 100;
 
 const normalizeSlugValue = (value?: string): string | undefined => {
@@ -146,8 +146,69 @@ export const getImage = async (req: IAuthRequest, res: Response): Promise<void> 
   try {
     const { image } = req.query;
     const url = await getSignedUrlForKey(image as string, IMAGE_SIGN_OPTIONS);
+
+    const acceptsJson = req.headers.accept && req.headers.accept.includes('application/json');
+    if (!acceptsJson && url) {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      return res.redirect(302, url);
+    }
+
     res.status(200).json(commonResponse('image fetched', true, { url }));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
+};
+
+// Extract the underlying S3 key from a product image entry (Mixed: a raw string
+// key or a { image } object).
+const imageKeyOf = (img: unknown): string => {
+  if (typeof img === 'string') return img.trim();
+  if (img && typeof img === 'object') {
+    const value = (img as { image?: unknown }).image;
+    return typeof value === 'string' ? value.trim() : '';
+  }
+  return '';
+};
+
+// True if ANY product still references this image key (optionally excluding one
+// product id). Guards deletes so a shared/persisted image is never removed from
+// S3 while a product still points at it.
+const isImageReferenced = async (key: string, excludeProductId?: string): Promise<boolean> => {
+  if (!key) return false;
+  const query: Record<string, unknown> = { $or: [{ 'images.image': key }, { images: key }] };
+  if (excludeProductId && mongoose.Types.ObjectId.isValid(excludeProductId)) {
+    query._id = { $ne: excludeProductId };
+  }
+  return !!(await Product.exists(query));
+};
+
+// Of the given keys, return only those no product references (safe to delete).
+const filterUnreferencedKeys = async (keys: string[], excludeProductId?: string): Promise<string[]> => {
+  const unique = Array.from(new Set(keys.map(imageKeyOf).filter(Boolean)));
+  const orphaned: string[] = [];
+  for (const key of unique) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!(await isImageReferenced(key, excludeProductId))) orphaned.push(key);
+  }
+  return orphaned;
+};
+
+/**
+ * Immediately free S3 storage for images the admin removed in the editor before
+ * saving (e.g. an image uploaded this session and then deleted). Only keys no
+ * product references are actually deleted, so a persisted/shared image is never
+ * lost — those are cleaned up on save/delete instead.
+ */
+export const deleteProductImages = async (req: IAuthRequest, res: Response): Promise<void> => {
+  try {
+    const raw = req.body.keys ?? req.body.key;
+    const requested = (Array.isArray(raw) ? raw : [raw]).map(imageKeyOf).filter(Boolean);
+    if (requested.length === 0) { res.status(400).json(commonResponse('No image keys provided', false)); return; }
+
+    const deletable = await filterUnreferencedKeys(requested);
+    if (deletable.length > 0) await deleteFromS3(deletable);
+
+    const skipped = requested.filter((k) => !deletable.includes(k));
+    res.status(200).json(commonResponse('Images processed', true, { deleted: deletable, skipped }));
+  } catch (error) { res.status(500).json(commonResponse('Failed to delete images', false)); }
 };
 
 export const createProduct = async (req: IAuthRequest, res: Response): Promise<void> => {
@@ -278,6 +339,19 @@ export const updateProduct = async (req: IAuthRequest, res: Response): Promise<v
         ...body,
         ...(body.overview_fields ? { overview_fields: sanitizeOverviewFields(body.overview_fields, { includeValue: true }) } : {}),
       });
+
+      // Free S3 storage for images removed from this product on save. Only run
+      // when the client actually sent an images array (otherwise images were not
+      // being edited); never delete a key another product still references.
+      if (Array.isArray(body.images)) {
+        const oldKeys = (Array.isArray(existing.images) ? existing.images : []).map(imageKeyOf).filter(Boolean);
+        const newKeys = new Set((body.images as unknown[]).map(imageKeyOf).filter(Boolean));
+        const removed = oldKeys.filter((key) => !newKeys.has(key));
+        if (removed.length > 0) {
+          const orphaned = await filterUnreferencedKeys(removed, String(body.id));
+          if (orphaned.length > 0) await deleteFromS3(orphaned);
+        }
+      }
     }
     const populated = data ? await Product.findById(data._id).populate(PRODUCT_POPULATE_PATHS).exec() : null;
     const out = populated ? flattenProductCatalog(populated) as Record<string, unknown> : undefined;
@@ -314,8 +388,18 @@ export const addBuyItWithProducts = async (req: IAuthRequest, res: Response): Pr
 export const deleteProduct = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const ids = Array.isArray(req.body.id) ? req.body.id : [req.body.id];
+    // Capture image keys before the products are gone so we can free their S3 storage.
+    const doomed = await Product.find({ _id: { $in: ids } }).select('images').lean().exec();
     const data = await Product.deleteMany({ _id: { $in: ids } }).exec();
-    if (data.deletedCount > 0) await deleteProductCatalogRefs(ids);
+    if (data.deletedCount > 0) {
+      await deleteProductCatalogRefs(ids);
+      const keys = doomed.flatMap((doc) => (Array.isArray(doc.images) ? doc.images : []).map(imageKeyOf)).filter(Boolean);
+      if (keys.length > 0) {
+        // These products are deleted; only remaining products can still reference a key.
+        const orphaned = await filterUnreferencedKeys(keys);
+        if (orphaned.length > 0) await deleteFromS3(orphaned);
+      }
+    }
     res.status(data.deletedCount > 0 ? 200 : 404).json(commonResponse(data.deletedCount > 0 ? 'Deleted' : 'Not found', data.deletedCount > 0, data));
   } catch (error) { res.status(500).json(commonResponse('Error deleting', false)); }
 };

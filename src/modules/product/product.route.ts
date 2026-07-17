@@ -3,7 +3,7 @@ import multer from 'multer';
 import {
   createProduct, getProducts, getProduct, getProductById, updateProduct,
   deleteProduct, allProducts, searchProduct, searchMainProducts, countProducts,
-  getSubCategoryAvailability, filterProducts, uploadImage, getImage,
+  getSubCategoryAvailability, filterProducts, uploadImage, getImage, deleteProductImages,
   SingleProduct, filterBoppProducts, filterPolyProducts, filterLabelProducts,
   SingleProductWithImage, addRelatedProducts, addBuyItWithProducts,
 } from './product.controller';
@@ -38,6 +38,7 @@ router.post('/bopp/filter', validate(boppFilterSchema), filterBoppProducts);
 router.post('/poly/filter', validate(polyFilterSchema), filterPolyProducts);
 router.post('/label/filter', validate(labelFilterSchema), filterLabelProducts);
 router.post('/uploadImage', upload.single('image'), uploadImage);
+router.post('/product/image/delete', adminMiddleware, authorize('product:update'), deleteProductImages);
 router.get('/getImage', getImage);
 router.get('/product/single/:id', SingleProduct);
 router.get('/product/image/single/:id', SingleProductWithImage);

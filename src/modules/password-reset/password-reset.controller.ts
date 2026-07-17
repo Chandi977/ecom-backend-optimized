@@ -2,16 +2,18 @@ import { Response } from 'express';
 import User from '../auth/auth.model';
 import PasswordReset from '../password-reset/password-reset.model';
 import { hashPassword, comparePassword } from '../../utils/validators/password-hash';
-import { addJob, emailQueue } from '../../queue';
+import { dispatchEmail } from '../../queue/email-dispatch';
 import { IAuthRequest } from '../../types';
 
 // Max guesses allowed against a single OTP before it is locked. The IP rate
 // limiter can be evaded with rotating IPs, so this caps brute force per code.
 const MAX_OTP_ATTEMPTS = 5;
 
+// The user schema stores email_address lowercased; normalize lookups the same way.
+const normalizeEmail = (email: unknown): string => String(email ?? '').trim().toLowerCase();
+
 export const forgotPassword = async (req: IAuthRequest, res: Response): Promise<void> => {
-  const { email } = req.body;
-  const email_address = email;
+  const email_address = normalizeEmail(req.body.email);
   try {
     const user = await User.findOne({ email_address }).exec();
     if (!user) {
@@ -29,11 +31,15 @@ export const forgotPassword = async (req: IAuthRequest, res: Response): Promise<
     await resetEntry.save();
 
     // The plaintext OTP is only ever sent to the user's email, never persisted.
-    await addJob(emailQueue, 'forgot-password', {
+    const emailSent = await dispatchEmail('forgot-password', {
       to: email_address,
       subject: 'Password Reset OTP',
       otp,
     });
+    if (!emailSent) {
+      res.status(502).json({ message: 'Could not send the OTP email. Please try again.' });
+      return;
+    }
 
     res.status(200).json({ message: 'OTP generated successfully' });
   } catch (error) {
@@ -42,8 +48,8 @@ export const forgotPassword = async (req: IAuthRequest, res: Response): Promise<
 };
 
 export const verifyOTP = async (req: IAuthRequest, res: Response): Promise<void> => {
-  const { email, otp } = req.body;
-  const email_address = email;
+  const { otp } = req.body;
+  const email_address = normalizeEmail(req.body.email);
   try {
     const user = await User.findOne({ email_address }).exec();
     if (!user) {
@@ -84,7 +90,8 @@ export const verifyOTP = async (req: IAuthRequest, res: Response): Promise<void>
 };
 
 export const resetPassword = async (req: IAuthRequest, res: Response): Promise<void> => {
-  const { email_address, new_password, confirm_password } = req.body;
+  const { new_password, confirm_password } = req.body;
+  const email_address = normalizeEmail(req.body.email_address);
   try {
     const user = await User.findOne({ email_address }).exec();
     if (!user) {

@@ -22,6 +22,8 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'product:create', 'product:read', 'product:update', 'product:delete',
     // Manage notification templates and send custom notifications.
     'notification:read', 'notification:write',
+    // View admin/catalog-manager activity observability and audit logs.
+    'analytics:read',
   ],
 };
 

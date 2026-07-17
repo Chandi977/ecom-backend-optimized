@@ -13,8 +13,27 @@ import { logger } from '../../utils/logger';
 export interface IPushMessage {
   title: string;
   body: string;
+  // Optional rich-notification image (big picture on Android / attachment on iOS).
+  image?: string;
   data?: Record<string, unknown>;
 }
+
+// FCM caps sendEachForMulticast at 500 tokens per call.
+const FCM_MULTICAST_LIMIT = 500;
+
+// Per-token error codes that mean the token is permanently dead and should be
+// removed from the registry.
+const DEAD_TOKEN_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+  'messaging/invalid-argument',
+]);
+
+const chunk = <T>(arr: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
 
 let initAttempted = false;
 
@@ -53,8 +72,16 @@ const getMessaging = async (): Promise<any | null> => {
 /**
  * Deliver a push to the given device tokens. Returns the number of messages the
  * provider accepted (0 when push is not configured). Never throws.
+ *
+ * Tokens are chunked to FCM's 500-per-call limit so large broadcasts don't fail,
+ * and any tokens FCM reports as permanently dead are handed back via
+ * `onDeadTokens` so the caller can prune them from the device registry.
  */
-export const sendPush = async (tokens: string[], message: IPushMessage): Promise<number> => {
+export const sendPush = async (
+  tokens: string[],
+  message: IPushMessage,
+  onDeadTokens?: (dead: string[]) => Promise<void>,
+): Promise<number> => {
   const unique = [...new Set((tokens || []).filter(Boolean))];
   if (unique.length === 0) return 0;
 
@@ -72,18 +99,64 @@ export const sendPush = async (tokens: string[], message: IPushMessage): Promise
     data[k] = typeof v === 'string' ? v : JSON.stringify(v);
   }
 
-  try {
-    const response = await messaging.sendEachForMulticast({
-      tokens: unique,
-      notification: { title: message.title, body: message.body },
-      data,
-    });
-    logger.info('Push delivered', { success: response.successCount, failure: response.failureCount });
-    return response.successCount || 0;
-  } catch (err) {
-    logger.error('Push delivery failed', { error: err instanceof Error ? err.message : 'Unknown' });
-    return 0;
+  // Route to the high-importance channel the app defines; order events get their
+  // own channel so users can mute promos without losing transactional updates.
+  const channelId = data.type === 'order' ? 'orders' : data.channelId || 'promotions';
+
+  const notification = {
+    title: message.title,
+    body: message.body,
+    ...(message.image ? { imageUrl: message.image } : {}),
+  };
+  const android = {
+    priority: 'high' as const,
+    notification: {
+      channelId,
+      sound: 'default',
+      defaultSound: true,
+      notificationPriority: 'PRIORITY_HIGH' as const,
+      ...(message.image ? { imageUrl: message.image } : {}),
+    },
+  };
+  const apns = {
+    headers: { 'apns-priority': '10' },
+    payload: { aps: { sound: 'default', 'mutable-content': 1 } },
+    ...(message.image ? { fcmOptions: { imageUrl: message.image } } : {}),
+  };
+
+  let success = 0;
+  const deadTokens: string[] = [];
+
+  for (const batch of chunk(unique, FCM_MULTICAST_LIMIT)) {
+    try {
+      const response = await messaging.sendEachForMulticast({
+        tokens: batch,
+        notification,
+        data,
+        android,
+        apns,
+      });
+      success += response.successCount || 0;
+      response.responses.forEach((r: any, i: number) => {
+        if (!r.success && r.error?.code && DEAD_TOKEN_CODES.has(r.error.code)) {
+          deadTokens.push(batch[i]);
+        }
+      });
+    } catch (err) {
+      logger.error('Push batch failed', { error: err instanceof Error ? err.message : 'Unknown', batchSize: batch.length });
+    }
   }
+
+  if (deadTokens.length > 0 && onDeadTokens) {
+    try {
+      await onDeadTokens(deadTokens);
+    } catch (err) {
+      logger.error('Dead-token prune failed', { error: err instanceof Error ? err.message : 'Unknown' });
+    }
+  }
+
+  logger.info('Push delivered', { success, failure: unique.length - success, pruned: deadTokens.length });
+  return success;
 };
 
 export const isPushConfigured = isConfigured;

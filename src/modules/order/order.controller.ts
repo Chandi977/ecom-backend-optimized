@@ -15,6 +15,7 @@ import { addJob, emailQueue, orderQueue } from '../../queue';
 import { resolvePaymentStatus, deriveOrderStatus } from '../../services/order.service';
 import { IStockItem, toStockItems } from '../../services/stock.service';
 import { notifyUserEvent } from '../notification/custom-notification.service';
+import { withLock } from '../../utils/concurrency/lock';
 
 if (!config.razorpay.keyId || !config.razorpay.keySecret) {
   throw new Error('Razorpay env vars missing');
@@ -24,6 +25,16 @@ const razorpay = new Razorpay({
   key_id: config.razorpay.keyId,
   key_secret: config.razorpay.keySecret,
 });
+
+// DEV-ONLY payment bypass. Lets an order be marked "Payment Verified" without a
+// real Razorpay payment. Hard-gated to TEST keys (rzp_test_) so it is physically
+// impossible to trigger against live keys, and requires ALLOW_PAYMENT_BYPASS=true
+// on top of that. Both conditions must hold — off by default.
+const PAYMENT_BYPASS_ENABLED =
+  config.razorpay.allowPaymentBypass && config.razorpay.keyId.startsWith('rzp_test');
+if (PAYMENT_BYPASS_ENABLED) {
+  logger.warn('⚠️  Razorpay payment bypass is ENABLED (test keys) — orders can be marked paid WITHOUT payment. Never enable this in production.');
+}
 
 const IMAGE_SIGN_OPTIONS = { expiresIn: 3600 };
 const PAYMENT_STATUS_SET = new Set(['Not Paid', 'Payment Processed', 'Payment Verified', 'Paid', 'Payment Failed', 'Payment Abandoned', 'Cancelled', 'Expired']);
@@ -75,7 +86,7 @@ const verifyRazorpayPayment = async (payload: Record<string, unknown>, existingO
 
 const queuePaymentFinalization = async (orderId: string): Promise<void> => {
   await orderQueue.add('finalize-payment-verified', { orderId }, {
-    jobId: `finalize-payment-verified:${orderId}`,
+    jobId: `finalize-payment-verified-${orderId}`,
     attempts: 3,
     backoff: { type: 'exponential', delay: 2000 },
     removeOnComplete: { age: 3600, count: 100 },
@@ -84,7 +95,14 @@ const queuePaymentFinalization = async (orderId: string): Promise<void> => {
 };
 
 export const createOrder = async (req: IAuthRequest, res: Response): Promise<void> => {
+  // Serialize checkout per user (or per guest identity) so a double-clicked
+  // "Place order" cannot create two orders in parallel. Belt-and-suspenders over
+  // the idempotencyKey dedupe below.
+  const lockKey = req.user
+    ? `create-order:user:${req.user}`
+    : `create-order:guest:${String(req.body?.email || req.body?.phone || req.body?.mobile || req.ip || 'anon').toLowerCase()}`;
   try {
+    await withLock([lockKey], async () => {
     const { items, name, phone, mobile, email, address, town, state, pincode, landmark, gstin, total, totalPackWeight, shippingCost, totalOrderValue, totalCartValue, utrNumber, couponCode } = req.body;
     const idempotencyKey = req.body.idempotencyKey || req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || null;
 
@@ -144,16 +162,15 @@ export const createOrder = async (req: IAuthRequest, res: Response): Promise<voi
     }
 
     if (data) {
-      await addJob(emailQueue, 'order-placed', { to: data.email, subject: 'Your Order has been placed', order: data });
+      // No customer-facing email or push here: the order exists but is unpaid, and
+      // telling the customer "your order has been placed" before payment is confirmed
+      // is misleading. Both are sent from finalizeVerifiedPayment instead.
       await addJob(orderQueue, 'process-new-order', { orderId: data._id });
-      // In-app/push notification to the order owner (no-op for guest orders).
-      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-placed-push',
-        { name: data.name, orderId: data.orderId, status: data.status },
-        { type: 'order', orderId: String(data._id) });
       res.status(201).json(commonResponse('Order created', true, data));
     } else {
       res.status(500).json(commonResponse('Failed to create order', false));
     }
+    }, { ttlMs: 15000 });
   } catch (error: unknown) {
     const err = error as Error & { code?: number };
     if (err.code === 11000 && req.body.idempotencyKey) {
@@ -320,12 +337,17 @@ export const updatePaymentStatus = async (req: IAuthRequest, res: Response): Pro
       if (razorpayPaymentId) {
         // Online payment: always cryptographically verify against Razorpay.
         await verifyRazorpayPayment({ razorpayPaymentId, razorpayOrderId, razorpaySignature }, order.toObject());
-      } else if (!isAdmin) {
+      } else if (isAdmin) {
+        // A trusted admin is manually confirming a non-Razorpay payment (e.g. UTR).
+      } else if (PAYMENT_BYPASS_ENABLED) {
+        // DEV-ONLY: test keys + ALLOW_PAYMENT_BYPASS let a customer self-verify
+        // without paying, so the checkout flow can be exercised end-to-end.
+        logger.warn(`Payment bypass used to verify order ${_id} (test mode, no Razorpay payment).`);
+      } else {
         // No Razorpay payment to verify and the caller is not an admin: refuse, so
         // a customer can never self-verify their own order without actually paying.
         throw new Error('Missing payment id');
       }
-      // else: a trusted admin is manually confirming a non-Razorpay payment (e.g. UTR).
     }
 
     const requestedVerification = normalized === 'Payment Verified';
@@ -360,6 +382,13 @@ export const updatePaymentStatus = async (req: IAuthRequest, res: Response): Pro
     res.status(200).json(commonResponse(requestedVerification ? 'Payment verification queued' : 'Payment updated', true, data));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error';
+    logger.warn('Payment status update failed', {
+      orderId: req.body?._id,
+      razorpayOrderId: req.body?.razorpayOrderId,
+      razorpayPaymentId: req.body?.razorpayPaymentId,
+      hasSignature: Boolean(req.body?.razorpaySignature),
+      error: message,
+    });
     res.status(400).json(commonResponse(message, false));
   }
 };

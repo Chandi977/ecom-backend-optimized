@@ -104,7 +104,7 @@ export const buildLegacyProductPayload = (source: Record<string, unknown>): Reco
     ...pickPresent(normalizedSeo, ['meta_title', 'meta_description', 'overview_fields']),
     ...pickPresent(source, [
     'name', 'model', 'delivery_time', 'hsn_code', 'sac_code', 'tax_category', 'price', 'gst', 'meta_title',
-    'meta_description', 'images', 'description', 'aboutItem', 'usage', 'product_id',
+    'meta_description', 'images', 'description', 'aboutItem', 'usage', 'product_id', 'reviewed_on',
     'top_product', 'deal_product', 'priceList',
     ...SPEC_FIELD_KEYS,
     ]),

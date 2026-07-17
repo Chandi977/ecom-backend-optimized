@@ -15,7 +15,15 @@ const buildFilter = (query: Record<string, unknown>): FilterQuery<IActivityLogDo
   const filter: FilterQuery<IActivityLogDocument> = {};
 
   if (query.userId) filter.userId = String(query.userId);
+  if (query.userName) filter.userName = { $regex: String(query.userName), $options: 'i' };
   if (query.role) filter.userRole = String(query.role);
+  if (query.roles) {
+    const roles = String(query.roles)
+      .split(',')
+      .map((role) => role.trim())
+      .filter(Boolean);
+    if (roles.length > 0) filter.userRole = { $in: roles } as never;
+  }
   if (query.method) filter.method = String(query.method).toUpperCase();
   if (query.route) filter.route = { $regex: String(query.route), $options: 'i' };
   if (query.resourceType) filter.resourceType = String(query.resourceType);
@@ -23,7 +31,8 @@ const buildFilter = (query: Record<string, unknown>): FilterQuery<IActivityLogDo
   if (query.success === 'true') filter.success = true;
   if (query.success === 'false') filter.success = false;
   // "writes=true" focuses the audit trail on who-changed-what (excludes reads).
-  if (query.writes === 'true') filter.method = { $ne: 'GET' } as never;
+  // Keep an explicit method filter when the UI asks for POST/PUT/PATCH/DELETE.
+  if (query.writes === 'true' && !query.method) filter.method = { $ne: 'GET' } as never;
 
   if (query.from || query.to) {
     const createdAt: Record<string, Date> = {};
@@ -63,7 +72,7 @@ export const getActivitySummary = async (req: IAuthRequest, res: Response): Prom
       filter.createdAt = { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
     }
 
-    const [overall, topEndpoints, callsOverTime, topUsers, byStatusClass, byRole] = await Promise.all([
+    const [overall, topEndpoints, callsOverTime, topUsers, byStatusClass, byUser] = await Promise.all([
       ActivityLog.aggregate([
         { $match: filter },
         {
@@ -104,7 +113,7 @@ export const getActivitySummary = async (req: IAuthRequest, res: Response): Prom
         { $match: { ...filter, userId: { $ne: null } } },
         {
           $group: {
-            _id: { userId: '$userId', role: '$userRole' },
+            _id: { userId: '$userId', userName: '$userName', role: '$userRole' },
             calls: { $sum: 1 },
           },
         },
@@ -121,12 +130,12 @@ export const getActivitySummary = async (req: IAuthRequest, res: Response): Prom
         },
         { $sort: { _id: 1 } },
       ]),
-      // Role-wise breakdown: total calls vs. write (mutation) actions per role.
+      // User-wise breakdown: total calls vs. write (mutation) actions per actor.
       ActivityLog.aggregate([
-        { $match: { ...filter, userRole: { $ne: null } } },
+        { $match: { ...filter, userId: { $ne: null } } },
         {
           $group: {
-            _id: '$userRole',
+            _id: { userId: '$userId', userName: '$userName', role: '$userRole' },
             calls: { $sum: 1 },
             writes: { $sum: { $cond: [{ $ne: ['$method', 'GET'] }, 1, 0] } },
             errorCount: { $sum: { $cond: [{ $gte: ['$statusCode', 400] }, 1, 0] } },
@@ -146,7 +155,7 @@ export const getActivitySummary = async (req: IAuthRequest, res: Response): Prom
         callsOverTime,
         topUsers,
         byStatusClass,
-        byRole,
+        byUser,
       })
     );
   } catch (error) {

@@ -11,6 +11,7 @@ export interface ISubCategoryDocument extends Document {
   tax_category?: string;
   delivery_time?: string;
   common_attributes?: Record<string, unknown>;
+  pack_sizes?: number[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +31,7 @@ const subCategorySchema = new Schema<ISubCategoryDocument>({
   // Optional sub-category-level attribute overrides. Resolved ahead of the parent
   // category's common_attributes during product attribute inheritance.
   common_attributes: { type: Schema.Types.Mixed, default: {} },
+  pack_sizes: { type: [Number], default: [1, 5, 10] },
 }, {
   timestamps: true,
 });

@@ -2,6 +2,8 @@ import Order from '../modules/order/order.model';
 import Counter from '../modules/counter/counter.model';
 import { addJob, emailQueue } from '../queue';
 import { logger } from '../utils/logger';
+import { withLock } from '../utils/concurrency/lock';
+import { notifyUserEvent } from '../modules/notification/custom-notification.service';
 
 const FAILURE_STATUSES = new Set(['Payment Failed', 'Payment Abandoned', 'Cancelled', 'Expired']);
 
@@ -54,7 +56,13 @@ export const resolvePaymentStatus = (current: string, desired: string): string =
   return desiredIndex >= currentIndex ? desired : current;
 };
 
-export const finalizeVerifiedPayment = async (orderId: string): Promise<unknown> => {
+export const finalizeVerifiedPayment = async (orderId: string): Promise<unknown> => (
+  // Serialize finalization per order so a duplicate webhook + frontend update can
+  // never mint two PI- numbers or double-send confirmation emails.
+  withLock([`finalize:order:${orderId}`], () => finalizeVerifiedPaymentLocked(orderId), { ttlMs: 30000 })
+);
+
+const finalizeVerifiedPaymentLocked = async (orderId: string): Promise<unknown> => {
   const order = await Order.findById(orderId).exec();
   if (!order) throw new Error(`Order not found: ${orderId}`);
 
@@ -93,9 +101,11 @@ export const finalizeVerifiedPayment = async (orderId: string): Promise<unknown>
 
   if (!updated) throw new Error(`Unable to finalize payment for order ${orderId}`);
 
-  await addJob(emailQueue, 'payment-received', {
+  // The customer's first and only "order placed" email - payment is confirmed by
+  // the time we get here, so the message is never sent against an unpaid order.
+  await addJob(emailQueue, 'order-placed', {
     to: updated.email,
-    subject: 'Payment received',
+    subject: 'Your Order has been placed',
     order: updated.toObject(),
   });
   await addJob(emailQueue, 'payment-confirmed', {
@@ -103,6 +113,9 @@ export const finalizeVerifiedPayment = async (orderId: string): Promise<unknown>
     subject: 'Order confirmed - ready to dispatch',
     order: updated.toObject(),
   });
+  await notifyUserEvent(updated.user ? String(updated.user) : undefined, 'order-placed-push',
+    { name: updated.name, orderId: updated.orderId, status: updated.status },
+    { type: 'order', orderId: String(updated._id) });
 
   logger.info('Order payment finalized', { orderId });
   return updated;

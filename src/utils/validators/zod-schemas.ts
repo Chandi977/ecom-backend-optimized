@@ -6,6 +6,9 @@ const emailStr = z.string().email('Invalid email format');
 const phoneStr = z.string().min(7, 'Phone too short').max(15, 'Phone too long').optional();
 const coerceNum = z.coerce.number();
 const coerceBool = z.coerce.boolean();
+// Accepts a string or number and normalizes to string. Admin spec forms type
+// count-like fields (e.g. label_in_roll) as number inputs, so both arrive here.
+const stringLike = z.union([z.string(), z.number()]).transform((value) => String(value));
 const stringOrStringArray = z.union([z.string(), z.array(z.string())]);
 const numericRange = z.union([
   coerceNum,
@@ -47,7 +50,7 @@ export const logoutSchema = z.object({
 });
 
 export const deleteUserSchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId).min(1, 'At least one user is required')]),
 });
 
 export const editUserSchema = z.object({
@@ -133,6 +136,8 @@ const priceListItemSchema = z.object({
   number: coerceNum,
   price: coerceNum,
   original_price: coerceNum.optional(),
+  price_regional: coerceNum.optional(),
+  price_national: coerceNum.optional(),
   stock_quantity: coerceNum.default(0),
   discount: coerceNum.optional(),
   pack_weight: coerceNum.optional(),
@@ -166,7 +171,7 @@ const productSpecificationInputSchema = z.object({
   thickness: coerceNum.optional(),
   thickness_micron: coerceNum.optional(),
   gusset: coerceNum.optional(),
-  label_in_roll: z.string().optional(),
+  label_in_roll: stringLike.optional(),
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   weight: coerceNum.optional(),
@@ -241,11 +246,12 @@ export const createProductSchema = z.object({
   thickness_micron: coerceNum.optional(),
   gusset: coerceNum.optional(),
   print: z.string().optional(),
-  label_in_roll: z.string().optional(),
-  label_in_role: z.string().optional(),
+  label_in_roll: stringLike.optional(),
+  label_in_role: stringLike.optional(),
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   product_id: z.string().optional(),
+  reviewed_on: z.string().optional(),
   adhesive: z.string().optional(),
   top_product: coerceBool.optional(),
   deal_product: coerceBool.optional(),
@@ -255,6 +261,7 @@ export const createProductSchema = z.object({
   images: z.array(z.union([z.string(), z.object({ image: z.string().optional() })])).optional(),
   overview_fields: z.array(overviewFieldSchema).optional(),
   attributes: z.record(z.string(), z.unknown()).optional(),
+  field_visibility: z.record(z.string(), z.unknown()).optional(),
   specification: productSpecificationInputSchema.optional(),
   pricing: pricingInputSchema.optional(),
   inventory: inventoryInputSchema.optional(),
@@ -299,11 +306,12 @@ export const updateProductSchema = z.object({
   thickness_micron: coerceNum.optional(),
   gusset: coerceNum.optional(),
   print: z.string().optional(),
-  label_in_roll: z.string().optional(),
-  label_in_role: z.string().optional(),
+  label_in_roll: stringLike.optional(),
+  label_in_role: stringLike.optional(),
   core_size: coerceNum.optional(),
   pouch_weight: coerceNum.optional(),
   product_id: z.string().optional(),
+  reviewed_on: z.string().optional(),
   adhesive: z.string().optional(),
   top_product: coerceBool.optional(),
   deal_product: coerceBool.optional(),
@@ -313,6 +321,7 @@ export const updateProductSchema = z.object({
   images: z.array(z.union([z.string(), z.object({ image: z.string().optional() })])).optional(),
   overview_fields: z.array(overviewFieldSchema).optional(),
   attributes: z.record(z.string(), z.unknown()).optional(),
+  field_visibility: z.record(z.string(), z.unknown()).optional(),
   specification: productSpecificationInputSchema.optional(),
   pricing: pricingInputSchema.optional(),
   inventory: inventoryInputSchema.optional(),
@@ -415,7 +424,7 @@ export const updateCategorySchema = z.object({
 });
 
 export const deleteCategorySchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── SubCategory ────────────────────────────────────────────────────
@@ -429,6 +438,7 @@ export const createSubCategorySchema = z.object({
   tax_category: z.string().optional(),
   delivery_time: z.string().optional(),
   common_attributes: z.record(z.string(), z.unknown()).optional(),
+  pack_sizes: z.array(z.number()).optional(),
 });
 
 export const updateSubCategorySchema = z.object({
@@ -442,10 +452,11 @@ export const updateSubCategorySchema = z.object({
   tax_category: z.string().optional(),
   delivery_time: z.string().optional(),
   common_attributes: z.record(z.string(), z.unknown()).optional(),
+  pack_sizes: z.array(z.number()).optional(),
 });
 
 export const deleteSubCategorySchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── Brand ──────────────────────────────────────────────────────────
@@ -463,7 +474,7 @@ export const updateBrandSchema = z.object({
 });
 
 export const deleteBrandSchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── Attribute Definition ───────────────────────────────────────────
@@ -755,7 +766,7 @@ export const updateCouponSchema = z.object({
 });
 
 export const deleteCouponSchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── Deal ───────────────────────────────────────────────────────────
@@ -780,7 +791,7 @@ export const updateDealSchema = z.object({
 });
 
 export const deleteDealSchema = z.object({
-  id: mongoId,
+  id: z.union([mongoId, z.array(mongoId)]),
 });
 
 // ─── Pincode / Freight ──────────────────────────────────────────────
@@ -843,6 +854,98 @@ export const createContactFormSchema = z.object({
 
 export const updateContactStatusSchema = z.object({
   status: contactStatusEnum,
+});
+
+// ─── Lead (self-hosted lead handling) ───────────────────────────────
+const leadStatusEnum = z.enum(['new', 'contacted', 'qualified', 'converted', 'closed']);
+
+export const createLeadSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: emailStr,
+  phone: phoneStr,
+  message: z.string().optional(),
+  company: z.string().optional(),
+  productCategory: z.string().optional(),
+  moq: z.string().optional(),
+  source: z.string().optional(),
+});
+
+const leadActivityTypeEnum = z.enum(['note', 'call', 'email', 'whatsapp', 'meeting', 'status_change', 'follow_up']);
+
+// Manual lead creation from the CRM (admin). Email is optional and no
+// acknowledgement mail is ever sent — this is an internally-recorded lead.
+export const adminCreateLeadSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.union([emailStr, z.literal('')]).optional(),
+  phone: z.string().optional(),
+  message: z.string().optional(),
+  company: z.string().optional(),
+  productCategory: z.string().optional(),
+  moq: z.string().optional(),
+  source: z.string().optional(),
+  status: leadStatusEnum.optional(),
+  assignedTo: z.string().optional(),
+  disposition: z.string().optional(),
+  nextFollowUpAt: z.string().optional(),
+});
+
+// General lead update from the CRM: edit contact/enquiry fields, move the
+// pipeline status, assign an owner, set the next follow-up, etc. At least one
+// updatable field must be present.
+export const updateLeadSchema = z.object({
+  name: z.string().min(1).optional(),
+  phone: z.string().optional(),
+  email: emailStr.optional(),
+  company: z.string().optional(),
+  productCategory: z.string().optional(),
+  moq: z.string().optional(),
+  message: z.string().optional(),
+  status: leadStatusEnum.optional(),
+  notes: z.string().max(5000).optional(),
+  assignedTo: z.string().optional(),
+  disposition: z.string().optional(),
+  // ISO date string or empty string to clear.
+  nextFollowUpAt: z.string().optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: 'Provide at least one field to update',
+});
+
+// Log an interaction on a lead's timeline. Can optionally move the pipeline and
+// set the next follow-up in the same action.
+export const addLeadActivitySchema = z.object({
+  type: leadActivityTypeEnum.optional(),
+  note: z.string().min(1, 'Note is required').max(5000),
+  at: z.string().optional(),
+  status: leadStatusEnum.optional(),
+  disposition: z.string().optional(),
+  nextFollowUpAt: z.string().optional(),
+});
+
+// Bulk CSV import (admin). Rows are pre-mapped on the client; email is optional
+// because historical leads may not have one.
+const importLeadRowSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+  message: z.string().optional(),
+  company: z.string().optional(),
+  productCategory: z.string().optional(),
+  moq: z.string().optional(),
+  source: z.string().optional(),
+  status: leadStatusEnum.optional(),
+  disposition: z.string().optional(),
+  assignedTo: z.string().optional(),
+  createdAt: z.string().optional(),
+  importKey: z.string().optional(),
+  activities: z.array(z.object({
+    type: leadActivityTypeEnum.optional(),
+    note: z.string().optional(),
+    at: z.string().optional(),
+  })).optional(),
+});
+
+export const importLeadsSchema = z.object({
+  leads: z.array(importLeadRowSchema).min(1, 'No leads to import').max(2000, 'Import at most 2000 leads at a time'),
 });
 
 // ─── Custom Packaging ───────────────────────────────────────────────

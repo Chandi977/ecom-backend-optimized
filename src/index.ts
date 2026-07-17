@@ -11,8 +11,10 @@ import { commonResponse } from "./utils/response";
 import { logger } from "./utils/logger";
 import rootRouter from "./routes/index";
 import { activityLogger } from "./middleware/activity-logger";
+import { concurrencyContext } from "./middleware/concurrency";
 import { setupSwagger } from "./swagger";
 import { initializeQueues } from "./queue";
+import { startAllWorkers } from "./workers";
 import { IAuthRequest } from "./types";
 import { cleanupAbandonedOrders } from "./modules/order/order.controller";
 import { seedTemplates } from "./modules/notification/notification-template.service";
@@ -140,6 +142,17 @@ const startServer = async (): Promise<void> => {
     // Seed default notification templates so the admin can edit them (idempotent).
     await seedTemplates();
 
+    // Run the BullMQ workers inside the API process unless explicitly disabled
+    // (or in production, where PM2 runs dedicated worker processes — see
+    // ecosystem.config.js). Without this, `yarn dev` queued emails (signup
+    // verification, password-reset OTPs) that nothing ever processed.
+    const workersInProcess = process.env.START_WORKERS_IN_PROCESS
+      ? process.env.START_WORKERS_IN_PROCESS === "true"
+      : config.nodeEnv !== "production";
+    if (workersInProcess) {
+      startAllWorkers();
+    }
+
     const trustProxy = parseTrustProxy(process.env.TRUST_PROXY, config.nodeEnv);
     app.set("trust proxy", trustProxy);
     app.disable("x-powered-by");
@@ -189,8 +202,14 @@ const startServer = async (): Promise<void> => {
       razorpayWebhook,
     );
 
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    // 5mb accommodates bulk operations (e.g. CSV lead import) while staying
+    // well within reason; the default 100kb 413s on those batches.
+    app.use(express.json({ limit: '5mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
+    // Establish a per-request lock context (flowId + heldLocks) so withLock in
+    // controllers/services gets reentrancy + cross-flow deadlock detection.
+    app.use(concurrencyContext);
 
     // Audit trail + API observability. Non-blocking; reads req.user set by route auth.
     app.use(activityLogger);
@@ -283,6 +302,22 @@ const startServer = async (): Promise<void> => {
       legacyHeaders: false,
     });
 
+    // Contact-form (lead) endpoint: blunt contact-form spam and auto-response
+    // email bombing. Keyed by IP + email so one client can't flood a single
+    // inbox with acknowledgement mails.
+    const contactFormLimiter = rateLimit({
+      windowMs: config.mail.contactForm.windowMs,
+      max: config.mail.contactForm.max,
+      message: {
+        success: false,
+        message: "Too many messages sent. Please try again later.",
+      },
+      keyGenerator: (req) =>
+        req.ip + ((req.body as Record<string, string>)?.email || ""),
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+
     app.use("/premind", healthRouter);
     app.use(LEGACY_API_PREFIX, apiLimiter);
     app.use(versionedApiPaths("/order/create"), orderCreateLimiter);
@@ -295,6 +330,7 @@ const startServer = async (): Promise<void> => {
       passwordResetRequestLimiter,
     );
     app.use(versionedApiPaths("/reset/password/verify/otp"), otpVerifyLimiter);
+    app.use(versionedApiPaths("/lead/create"), contactFormLimiter);
     app.use(
       versionedApiPaths("/reset/password/update"),
       passwordResetRequestLimiter,

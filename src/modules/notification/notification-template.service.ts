@@ -17,7 +17,7 @@ export interface ITemplateShape {
  * the wording of every notification and are seeded into the DB on startup so the
  * admin can edit them. The email `body` fields hold the inner content that the
  * email worker wraps with the shared `buildEmailLayout`. Order email content is
- * largely generated (items table / totals) and exposed here through computed
+  * largely generated (items / totals) and exposed here through computed
  * `{{placeholders}}` — only the surrounding copy is meant to be hand-edited.
  */
 export const TEMPLATE_DEFAULTS: Record<string, Omit<ITemplateShape, 'key'>> = {
@@ -123,6 +123,68 @@ export const TEMPLATE_DEFAULTS: Record<string, Omit<ITemplateShape, 'key'>> = {
     </p>
   `,
   },
+  // Auto-generated acknowledgement sent to a visitor who submits the contact /
+  // lead form on the self-hosted lead-handling endpoint.
+  'lead-autoresponse-email': {
+    channel: 'email',
+    name: 'Lead Auto-Response Email',
+    description: 'Auto-reply sent to a visitor who submits the contact form. {{messageBlock}} is generated from the message they sent.',
+    subject: 'We received your message - Prem Packaging',
+    variables: ['name', 'message'],
+    body: `
+    <h1>Thanks for reaching out, {{name}}!</h1>
+    <p>We have received your message and a member of the <strong>Prem Packaging</strong> team will get back to you within one business day. Our support hours are Monday to Saturday, 9:00 AM to 6:00 PM (IST).</p>
+
+    <div class="card" style="margin-top: 28px; margin-bottom: 28px;">
+      <h3 style="margin-top: 0;">Your message</h3>
+      <p style="margin:0;font-size:15px;color:#475569;line-height:1.6;white-space:pre-line;">{{message}}</p>
+    </div>
+
+    <p>In the meantime, feel free to explore our range of premium packaging solutions or track an existing order from your dashboard.</p>
+
+    <div style="text-align: center; margin-top: 30px;">
+      <a href="https://store.prempackaging.com" class="btn" style="color:#ffffff !important;">Visit Store</a>
+    </div>
+
+    <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
+      <p style="font-size: 13px; color: #94a3b8; margin: 0;">
+        Need urgent help? Call us at <strong>+91-844-724-7227</strong> or email
+        <a href="mailto:ecommerce@premindustries.in" style="color:#F02020;">ecommerce@premindustries.in</a>.
+      </p>
+    </div>
+  `,
+  },
+  // Internal notification e-mailed to the store inbox for every new lead.
+  'lead-admin-notify-email': {
+    channel: 'email',
+    name: 'New Lead Notification (internal)',
+    description: 'Internal alert sent to the store inbox when a new lead / contact form is submitted.',
+    subject: 'New enquiry from {{name}}',
+    variables: ['name', 'email', 'phone', 'message', 'source', 'detailsHtml', 'emailVerified'],
+    body: `
+    <h1>New Enquiry Received</h1>
+    <p>A new lead has just come in through the website contact form.</p>
+
+    <table class="order-summary" role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr><td class="summary-label">Name</td><td class="summary-value">{{name}}</td></tr>
+      <tr><td class="summary-label">Email</td><td class="summary-value">{{email}}</td></tr>
+      <tr><td class="summary-label">Phone</td><td class="summary-value">{{phone}}</td></tr>
+      <tr><td class="summary-label">Source</td><td class="summary-value">{{source}}</td></tr>
+      {{detailsHtml}}
+      <tr><td class="summary-label">Deliverable</td><td class="summary-value">{{emailVerified}}</td></tr>
+    </table>
+
+    <div class="card" style="margin-top: 24px;">
+      <h3 style="margin-top: 0;">Message</h3>
+      <p style="margin:0;font-size:15px;color:#475569;line-height:1.6;white-space:pre-line;">{{message}}</p>
+    </div>
+
+    <p style="font-size: 13px; color: #94a3b8; margin-top: 24px;">
+      Reply directly to <strong>{{email}}</strong> to follow up with this lead.
+    </p>
+  `,
+  },
+
   // Order emails share one generated layout. The items table ({{itemsHtml}}),
   // totals and delivery block are computed by the worker; the heading, status
   // card copy and button are editable here.
@@ -177,11 +239,11 @@ function orderEmailDefault(name: string, description: string): Omit<ITemplateSha
   return {
     channel: 'email',
     name,
-    description: `${description} The items table ({{itemsHtml}}), totals and delivery block are generated automatically.`,
+    description: `${description} The items cards ({{itemsCardsHtml}}), totals and delivery block are generated automatically.`,
     subject: '',
     variables: [
       'subject', 'statusLabel', 'statusBadgeClass', 'statusColor', 'orderNumber',
-      'statusDetailsHtml', 'itemsHtml', 'displaySubtotalEx', 'displayShippingEx',
+      'statusDetailsHtml', 'itemsHtml', 'itemsCardsHtml', 'displaySubtotalEx', 'displayShippingEx',
       'totalGstCombined', 'displayTotalPaid', 'name', 'addressHtml', 'phone',
       'orderDate', 'paymentProvider', 'paymentStatus', 'gstinHtml', 'utrHtml',
     ],
@@ -200,42 +262,28 @@ function orderEmailDefault(name: string, description: string): Omit<ITemplateSha
     </div>
 
     <h2>Order Items</h2>
-    <div class="order-table-wrap">
-    <table class="order-table" style="width: 100%; border-collapse: collapse; margin: 25px 0;">
-      <thead>
-        <tr>
-          <th style="width: 45%; text-align: left; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 14px; text-transform: uppercase; font-weight: 600;">Product Details</th>
-          <th style="width: 10%; text-align: center; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 14px; text-transform: uppercase; font-weight: 600;">Qty</th>
-          <th style="width: 15%; text-align: right; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 14px; text-transform: uppercase; font-weight: 600;">Price</th>
-          <th style="width: 12%; text-align: center; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 14px; text-transform: uppercase; font-weight: 600;">GST</th>
-          <th style="width: 18%; text-align: right; padding: 12px; border-bottom: 2px solid #e2e8f0; color: #475569; font-size: 14px; text-transform: uppercase; font-weight: 600;">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{itemsHtml}}
-        <tr>
-          <td colspan="3" style="border: none;"></td>
-          <td style="padding: 8px 12px; text-align: right; color: #64748b; font-size: 14px; font-weight: 500;">Subtotal (Excl. GST):</td>
-          <td style="padding: 8px 12px; text-align: right; font-weight: 500; font-size: 14px; border-bottom: 1px solid #f1f5f9;">{{displaySubtotalEx}}</td>
-        </tr>
-        <tr>
-          <td colspan="3" style="border: none;"></td>
-          <td style="padding: 8px 12px; text-align: right; color: #64748b; font-size: 14px; font-weight: 500;">Shipping (Excl. GST):</td>
-          <td style="padding: 8px 12px; text-align: right; font-weight: 500; font-size: 14px; border-bottom: 1px solid #f1f5f9;">{{displayShippingEx}}</td>
-        </tr>
-        <tr>
-          <td colspan="3" style="border: none;"></td>
-          <td style="padding: 8px 12px; text-align: right; color: #64748b; font-size: 14px; font-weight: 500;">GST:</td>
-          <td style="padding: 8px 12px; text-align: right; font-weight: 500; font-size: 14px; border-bottom: 1px solid #f1f5f9;">{{totalGstCombined}}</td>
-        </tr>
-        <tr class="total-row">
-          <td colspan="3" style="border: none;"></td>
-          <td style="padding: 12px; text-align: right; font-weight: 700; border-top: 2px solid #e2e8f0; font-size: 16px; color: #102050;">Total Paid:</td>
-          <td style="padding: 12px; text-align: right; font-weight: 700; border-top: 2px solid #e2e8f0; font-size: 16px; color: #102050;">{{displayTotalPaid}}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="order-items-list">
+      {{itemsCardsHtml}}
     </div>
+
+    <table class="order-summary" role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td class="summary-label">Subtotal (Excl. GST)</td>
+        <td class="summary-value">{{displaySubtotalEx}}</td>
+      </tr>
+      <tr>
+        <td class="summary-label">Shipping (Excl. GST)</td>
+        <td class="summary-value">{{displayShippingEx}}</td>
+      </tr>
+      <tr>
+        <td class="summary-label">GST</td>
+        <td class="summary-value">{{totalGstCombined}}</td>
+      </tr>
+      <tr class="summary-total">
+        <td class="summary-label">Total Paid</td>
+        <td class="summary-value">{{displayTotalPaid}}</td>
+      </tr>
+    </table>
 
     <table class="delivery-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:28px;">
       <tr>
