@@ -107,10 +107,16 @@ export const signup = async (req: IAuthRequest, res: Response): Promise<void> =>
       return;
     }
 
-    // Security: only an authenticated full-access admin may assign a privileged role.
-    // Public/anonymous signups (and restricted roles) always create a plain 'user',
-    // closing the privilege-escalation hole where the role was trusted from the body.
-    const assignedRole = isFullAccessRole(req.userRole) && role ? role : 'user';
+    // Security: public signups can only create plain users. If the admin UI asks
+    // for a privileged role, fail loudly instead of silently creating a normal user.
+    const requestedRole = role || 'user';
+    if (requestedRole !== 'user' && !isFullAccessRole(req.userRole)) {
+      res.status(req.userRole ? 403 : 401).json(
+        commonResponse('Only an admin can create admin or catalog-manager accounts.', false)
+      );
+      return;
+    }
+    const assignedRole = isFullAccessRole(req.userRole) ? requestedRole : 'user';
 
     const verificationToken = generateVerificationToken();
     const hashedPassword = await hashPassword(password);
@@ -431,7 +437,8 @@ export const updatePrivacyPreferences = async (req: IAuthRequest, res: Response)
 export const deleteUser = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.body;
-    const data = await User.deleteMany({ _id: { $in: id } }).exec();
+    const ids = Array.isArray(id) ? id : [id];
+    const data = await User.deleteMany({ _id: { $in: ids } }).exec();
     res.status(data.deletedCount > 0 ? 200 : 400).json(
       commonResponse(data.deletedCount > 0 ? 'User deleted' : 'User not found', data.deletedCount > 0, data)
     );

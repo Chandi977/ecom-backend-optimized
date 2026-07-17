@@ -117,6 +117,29 @@ export const buildWelcomeHtml = async (name: string, fallbackSubject = 'Welcome 
 export const buildForgotPasswordHtml = async (otp: string, fallbackSubject = 'Reset Your Password - Prem Packaging'): Promise<IEmailBuild> =>
   renderTemplateEmail('forgot-password-email', { otp }, fallbackSubject);
 
+export const buildLeadAutoResponseHtml = async (
+  name: string,
+  message: string,
+  fallbackSubject = 'We received your message - Prem Packaging',
+): Promise<IEmailBuild> =>
+  renderTemplateEmail('lead-autoresponse-email', {
+    name,
+    // Show a friendly placeholder when the visitor left the message blank.
+    message: message?.trim() ? message : 'No additional message was provided.',
+  }, fallbackSubject);
+
+export const buildLeadAdminNotifyHtml = async (
+  vars: { name: string; email: string; phone?: string; message?: string; source?: string },
+  fallbackSubject = 'New enquiry - Prem Packaging',
+): Promise<IEmailBuild> =>
+  renderTemplateEmail('lead-admin-notify-email', {
+    name: vars.name,
+    email: vars.email,
+    phone: vars.phone || '—',
+    message: vars.message?.trim() ? vars.message : '—',
+    source: vars.source || 'contact-us',
+  }, fallbackSubject);
+
 const ORDER_TEMPLATE_KEYS: Record<string, string> = {
   'order-placed': 'order-placed-email',
   'order-shipped': 'order-shipped-email',
@@ -403,6 +426,21 @@ export const emailHandlers: Record<string, (data: Record<string, any>) => Promis
   },
   'forgot-password': async (data) => {
     const { subject, html } = await buildForgotPasswordHtml(data.otp as string, data.subject as string);
+    await sendOrThrow({ to: data.to as string, subject, html });
+  },
+  'lead-autoresponse': async (data) => {
+    const { subject, html } = await buildLeadAutoResponseHtml(data.name as string, data.message as string, data.subject as string);
+    await sendOrThrow({ to: data.to as string, subject, html });
+  },
+  'lead-admin-notify': async (data) => {
+    if (!data.to) return;
+    const { subject, html } = await buildLeadAdminNotifyHtml({
+      name: data.name as string,
+      email: data.email as string,
+      phone: data.phone as string,
+      message: data.message as string,
+      source: data.source as string,
+    }, data.subject as string);
     await sendOrThrow({ to: data.to as string, subject, html });
   },
   'order-placed': async (data) => {

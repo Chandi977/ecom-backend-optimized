@@ -123,6 +123,68 @@ export const TEMPLATE_DEFAULTS: Record<string, Omit<ITemplateShape, 'key'>> = {
     </p>
   `,
   },
+  // Auto-generated acknowledgement sent to a visitor who submits the contact /
+  // lead form on the self-hosted lead-handling endpoint.
+  'lead-autoresponse-email': {
+    channel: 'email',
+    name: 'Lead Auto-Response Email',
+    description: 'Auto-reply sent to a visitor who submits the contact form. {{messageBlock}} is generated from the message they sent.',
+    subject: 'We received your message - Prem Packaging',
+    variables: ['name', 'message'],
+    body: `
+    <h1>Thanks for reaching out, {{name}}!</h1>
+    <p>We have received your message and a member of the <strong>Prem Packaging</strong> team will get back to you within one business day. Our support hours are Monday to Saturday, 9:00 AM to 6:00 PM (IST).</p>
+
+    <div class="card" style="margin-top: 28px; margin-bottom: 28px;">
+      <h3 style="margin-top: 0;">Your message</h3>
+      <p style="margin:0;font-size:15px;color:#475569;line-height:1.6;white-space:pre-line;">{{message}}</p>
+    </div>
+
+    <p>In the meantime, feel free to explore our range of premium packaging solutions or track an existing order from your dashboard.</p>
+
+    <div style="text-align: center; margin-top: 30px;">
+      <a href="https://store.prempackaging.com" class="btn" style="color:#ffffff !important;">Visit Store</a>
+    </div>
+
+    <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 30px;">
+      <p style="font-size: 13px; color: #94a3b8; margin: 0;">
+        Need urgent help? Call us at <strong>+91-844-724-7227</strong> or email
+        <a href="mailto:ecommerce@premindustries.in" style="color:#F02020;">ecommerce@premindustries.in</a>.
+      </p>
+    </div>
+  `,
+  },
+  // Internal notification e-mailed to the store inbox for every new lead.
+  'lead-admin-notify-email': {
+    channel: 'email',
+    name: 'New Lead Notification (internal)',
+    description: 'Internal alert sent to the store inbox when a new lead / contact form is submitted.',
+    subject: 'New enquiry from {{name}}',
+    variables: ['name', 'email', 'phone', 'message', 'source', 'detailsHtml', 'emailVerified'],
+    body: `
+    <h1>New Enquiry Received</h1>
+    <p>A new lead has just come in through the website contact form.</p>
+
+    <table class="order-summary" role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr><td class="summary-label">Name</td><td class="summary-value">{{name}}</td></tr>
+      <tr><td class="summary-label">Email</td><td class="summary-value">{{email}}</td></tr>
+      <tr><td class="summary-label">Phone</td><td class="summary-value">{{phone}}</td></tr>
+      <tr><td class="summary-label">Source</td><td class="summary-value">{{source}}</td></tr>
+      {{detailsHtml}}
+      <tr><td class="summary-label">Deliverable</td><td class="summary-value">{{emailVerified}}</td></tr>
+    </table>
+
+    <div class="card" style="margin-top: 24px;">
+      <h3 style="margin-top: 0;">Message</h3>
+      <p style="margin:0;font-size:15px;color:#475569;line-height:1.6;white-space:pre-line;">{{message}}</p>
+    </div>
+
+    <p style="font-size: 13px; color: #94a3b8; margin-top: 24px;">
+      Reply directly to <strong>{{email}}</strong> to follow up with this lead.
+    </p>
+  `,
+  },
+
   // Order emails share one generated layout. The items table ({{itemsHtml}}),
   // totals and delivery block are computed by the worker; the heading, status
   // card copy and button are editable here.

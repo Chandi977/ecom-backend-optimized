@@ -4,8 +4,8 @@ import { adminMiddleware, authorize } from '../../middleware';
 
 const router = Router();
 
-// Analytics is for full-access admins only. `authorize('analytics:read')` blocks
-// restricted roles (e.g. catalog-manager) while full-access roles bypass.
+// Analytics is limited to full admins and restricted roles explicitly granted
+// `analytics:read` (currently catalog-manager).
 router.get('/activity/logs', adminMiddleware, authorize('analytics:read'), getActivityLogs);
 router.get('/activity/summary', adminMiddleware, authorize('analytics:read'), getActivitySummary);
 

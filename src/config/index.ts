@@ -37,6 +37,24 @@ export const config = {
     pass: process.env.SMTP_PASS || '',
   },
 
+  mail: {
+    // Inbox that receives the internal "new lead" notification from the
+    // self-hosted lead-handling endpoint. Falls back to the SMTP sender inbox
+    // when unset so notifications are never silently dropped.
+    leadNotifyEmail: (process.env.LEAD_NOTIFY_EMAIL || '').trim(),
+    // Verify a recipient address (syntax + disposable-domain + MX lookup)
+    // before sending an auto-response. Set EMAIL_VERIFY_MX=false to skip the
+    // DNS/MX step (e.g. in a locked-down network) — format/disposable checks
+    // still run.
+    verifyRecipients: process.env.EMAIL_VERIFY_MX !== 'false',
+    // Rate limit for the public contact-form / lead endpoint. Keyed by IP+email
+    // to blunt contact-form spam and auto-response email bombing.
+    contactForm: {
+      windowMs: parseInt(process.env.CONTACT_FORM_RATE_WINDOW_MS || '900000', 10), // 15 min
+      max: parseInt(process.env.CONTACT_FORM_RATE_MAX || '5', 10),
+    },
+  },
+
   brevo: {
     apiKey: process.env.BREVO_API || '',
   },
