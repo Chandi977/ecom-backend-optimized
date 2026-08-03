@@ -7,10 +7,11 @@ import slugify from 'slugify';
 import { IAuthRequest } from '../../types';
 import { parseOptionalGstRate } from '../../utils/gst-rate';
 import { sanitizeCommonAttributes } from '../../utils/category-attributes';
+import { sanitizeSeoContent } from '../../utils/seo-content';
 
 export const createSubCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { name, category, sub_category_id, gst, hsn_code, sac_code, tax_category, delivery_time, common_attributes, pack_sizes } = req.body;
+    const { name, category, sub_category_id, gst, hsn_code, sac_code, tax_category, delivery_time, common_attributes, pack_sizes, seo_content } = req.body;
     if (!name) { res.status(400).json(commonResponse('Name is required', false)); return; }
     const parsedGst = parseOptionalGstRate(gst);
     const subCategory = new SubCategory({
@@ -25,6 +26,7 @@ export const createSubCategory = async (req: IAuthRequest, res: Response): Promi
       ...(delivery_time !== undefined ? { delivery_time } : {}),
       ...(common_attributes !== undefined ? { common_attributes: sanitizeCommonAttributes(common_attributes) } : {}),
       ...(pack_sizes !== undefined ? { pack_sizes } : {}),
+      ...(seo_content !== undefined ? { seo_content: sanitizeSeoContent(seo_content) } : {}),
     });
     const data = await subCategory.save();
     res.status(201).json(commonResponse('SubCategory created', true, data));
@@ -48,7 +50,7 @@ export const getSubCategory = async (req: IAuthRequest, res: Response): Promise<
 
 export const updateSubCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { id, name, category, sub_category_id, gst, hsn_code, sac_code, tax_category, delivery_time, common_attributes, pack_sizes } = req.body;
+    const { id, name, category, sub_category_id, gst, hsn_code, sac_code, tax_category, delivery_time, common_attributes, pack_sizes, seo_content } = req.body;
     const existing = await SubCategory.findById(id).lean().exec();
     if (!existing) { res.status(404).json(commonResponse('Not found', false)); return; }
 
@@ -83,6 +85,7 @@ export const updateSubCategory = async (req: IAuthRequest, res: Response): Promi
     }
     if (common_attributes !== undefined) update.common_attributes = sanitizeCommonAttributes(common_attributes);
     if (pack_sizes !== undefined) update.pack_sizes = pack_sizes;
+    if (seo_content !== undefined) update.seo_content = sanitizeSeoContent(seo_content);
     const data = await SubCategory.findOneAndUpdate({ _id: id }, update, { new: true }).lean().exec();
     if (!data) { res.status(404).json(commonResponse('Not found', false)); return; }
 

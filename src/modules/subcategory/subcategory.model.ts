@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { ISeoContent } from '../../utils/seo-content';
 
 export interface ISubCategoryDocument extends Document {
   name: string;
@@ -12,9 +13,19 @@ export interface ISubCategoryDocument extends Document {
   delivery_time?: string;
   common_attributes?: Record<string, unknown>;
   pack_sizes?: number[];
+  seo_content?: ISeoContent;
   createdAt: Date;
   updatedAt: Date;
 }
+
+// One question/answer pair of the sub-category FAQ. Plain text on both sides.
+const seoFaqSchema = new Schema(
+  {
+    question: { type: String, required: true },
+    answer: { type: String, required: true },
+  },
+  { _id: false },
+);
 
 const subCategorySchema = new Schema<ISubCategoryDocument>({
   name: { type: String, required: true },
@@ -32,6 +43,13 @@ const subCategorySchema = new Schema<ISubCategoryDocument>({
   // category's common_attributes during product attribute inheritance.
   common_attributes: { type: Schema.Types.Mixed, default: {} },
   pack_sizes: { type: [Number], default: [1, 5, 10] },
+  // Long-form SEO copy + FAQ shared by every product page in this sub-category.
+  // Authored once here rather than per product; see utils/seo-content.
+  seo_content: {
+    heading: { type: String },
+    description: { type: String },
+    faqs: { type: [seoFaqSchema], default: undefined },
+  },
 }, {
   timestamps: true,
 });

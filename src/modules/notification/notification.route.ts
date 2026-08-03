@@ -3,6 +3,7 @@ import {
   listTemplates,
   getTemplateByKey,
   updateTemplate,
+  searchNotificationRecipients,
   sendNotification,
   listCampaigns,
   getFeed,
@@ -28,6 +29,7 @@ router.get('/notification/templates/:key', adminMiddleware, authorize('notificat
 router.put('/notification/templates/:key', adminMiddleware, authorize('notification:write'), validate(updateNotificationTemplateSchema), updateTemplate);
 
 // ── Admin broadcasts ──
+router.get('/notification/recipients', adminMiddleware, authorize('notification:write'), searchNotificationRecipients);
 router.post('/notification/send', adminMiddleware, authorize('notification:write'), validate(sendNotificationSchema), sendNotification);
 router.get('/notification/campaigns', adminMiddleware, authorize('notification:read'), listCampaigns);
 

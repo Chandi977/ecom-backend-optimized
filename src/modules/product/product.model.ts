@@ -154,6 +154,12 @@ const productSchema = new Schema<IProductDocument>(
     reviewed_on: { type: String },
     top_product: { type: Boolean, default: false },
     deal_product: { type: Boolean, default: false },
+    // Denormalized customer-review rating summary, recomputed from APPROVED
+    // reviews by the review module (recomputeProductRating). Surfaced on every
+    // product response via flattenProductCatalog so storefront/mobile cards can
+    // show star badges without an extra query. ratingCount 0 = no reviews yet.
+    ratingAverage: { type: Number, default: 0 },
+    ratingCount: { type: Number, default: 0 },
     meta_title: { type: String },
     meta_description: { type: String },
     buyItWith: [{ type: Schema.Types.ObjectId, ref: "Product" }],

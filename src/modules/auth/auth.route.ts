@@ -23,20 +23,26 @@ router.post('/signin', validate(signinSchema), signIn);
 router.post('/auth/google', validate(googleAuthSchema), googleAuth);
 router.post('/auth/refresh', validate(refreshAuthSchema), refreshAuthToken);
 router.post('/auth/logout', validate(logoutSchema), logout);
-router.get('/allCustomers', adminMiddleware, Allusers);
-router.get('/userStats', adminMiddleware, userStats);
-router.get('/searchusers', adminMiddleware, searchUsers);
-router.get('/countUsers', adminMiddleware, CountUsers);
+// Storefront-customer listings + stats. `customer:read` is held by admin, manager,
+// general and catalog-manager — but NOT by `seo`, which has no business reading
+// customer PII. The shared legacy Dashboard reads /countUsers + /userStats, and
+// every role that renders it holds the grant (the `seo` role gets SeoDashboard).
+router.get('/allCustomers', adminMiddleware, authorize('customer:read'), Allusers);
+router.get('/userStats', adminMiddleware, authorize('customer:read'), userStats);
+router.get('/searchusers', adminMiddleware, authorize('customer:read'), searchUsers);
+router.get('/countUsers', adminMiddleware, authorize('customer:read'), CountUsers);
 router.post('/deleteUser', adminMiddleware, authorize('user:write'), validate(deleteUserSchema), deleteUser);
 router.get('/getuser/:id', userMiddleware, specificuser);
 router.get('/user/privacy-preferences', userMiddleware, getPrivacyPreferences);
 router.put('/user/privacy-preferences', userMiddleware, validate(updatePrivacyPreferencesSchema), updatePrivacyPreferences);
 router.post('/edituser', userMiddleware, validate(editUserSchema), editUser);
 router.post('/adminPass', adminMiddleware, authorize('user:write'), validate(changePasswordSchema), changePassword);
-router.get('/totalUsers', adminMiddleware, totalUsers);
-router.get('/all/admin', adminMiddleware, AllAdminRoles);
-router.get('/all/admin/list', adminMiddleware, totalAdmin);
-router.get('/count/admin', adminMiddleware, CountAdmin);
+router.get('/totalUsers', adminMiddleware, authorize('customer:read'), totalUsers);
+// Staff-account listings (every user whose role is not `user`). `user:read` is held
+// only by admin/manager, so restricted roles cannot enumerate the admin team.
+router.get('/all/admin', adminMiddleware, authorize('user:read'), AllAdminRoles);
+router.get('/all/admin/list', adminMiddleware, authorize('user:read'), totalAdmin);
+router.get('/count/admin', adminMiddleware, authorize('user:read'), CountAdmin);
 router.post('/verify/email', validate(verifyEmailSchema), verifyEmail);
 router.put('/update/verified', adminMiddleware, authorize('user:write'), validate(updateVerifiedSchema), updateField);
 router.post('/re/verify/email', validate(reVerifyEmailSchema), reVerifyEmail);

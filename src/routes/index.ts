@@ -23,6 +23,11 @@ import appVersion from '../modules/app-version/app-version.route';
 import activityLog from '../modules/activity-log/activity-log.route';
 import demandSignal from '../modules/demand-signal/demand-signal.route';
 import notification from '../modules/notification/notification.route';
+import marketing from '../modules/marketing/marketing.route';
+import reviewRouter from '../modules/review/review.route';
+import permissionsRouter from '../modules/permissions/permissions.route';
+import seoDashboardRouter from '../modules/seo-dashboard/seo-dashboard.route';
+import opsDashboardRouter from '../modules/ops-dashboard/ops-dashboard.route';
 import healthRouter from '../modules/health/health.route';
 
 const rootRouter = Router();
@@ -51,6 +56,11 @@ rootRouter.use(appVersion);
 rootRouter.use(activityLog);
 rootRouter.use(demandSignal);
 rootRouter.use(notification);
+rootRouter.use(marketing);
+rootRouter.use(reviewRouter);
+rootRouter.use(permissionsRouter);
+rootRouter.use(seoDashboardRouter);
+rootRouter.use(opsDashboardRouter);
 rootRouter.use(healthRouter);
 
 export default rootRouter;

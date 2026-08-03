@@ -96,6 +96,9 @@ export interface IProduct {
   reviewed_on?: string;
   top_product?: boolean;
   deal_product?: boolean;
+  // Denormalized customer-review rating summary (see review module).
+  ratingAverage?: number;
+  ratingCount?: number;
   meta_title?: string;
   meta_description?: string;
   buyItWith?: string[];

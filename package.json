@@ -24,6 +24,8 @@
     "migrate:revert-product-attributes": "node dist/scripts/revert-product-attributes.js",
     "migrate:spec-attributes": "node dist/scripts/migrate-spec-attributes.js",
     "migrate:product-category-link": "node dist/scripts/migrate-product-category-link.js",
+    "seed:admin-roles": "ts-node --transpile-only src/scripts/seed-admin-roles.ts",
+    "seed:reviews": "ts-node --transpile-only src/scripts/seed-reviews.ts",
     "setup:category-sections": "ts-node --transpile-only src/scripts/setup-category-sections.ts",
     "export:positive-stock-pdf": "node dist/scripts/exportPositiveStockPdf.js",
     "swagger:check": "node dist/scripts/checkSwaggerCoverage.js",

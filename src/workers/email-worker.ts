@@ -6,10 +6,13 @@ import { logger } from '../utils/logger';
 import { getBullConnection } from '../utils/redis';
 import { Product } from '../models';
 import { renderEmail } from '../modules/notification/notification-template.service';
+import { buildUnsubscribeUrl } from '../modules/marketing/marketing.service';
+import { recordCampaignProgress } from '../modules/marketing/campaign.service';
 import { bootWorkerProcess } from './boot';
 
-// Base HTML layout wrapper for email templates
-const buildEmailLayout = (title: string, contentHtml: string): string => `<!DOCTYPE html>
+// Base HTML layout wrapper for email templates. `preheader` is the hidden inbox
+// preview snippet (shown in the list view before the email is opened).
+const buildEmailLayout = (title: string, contentHtml: string, preheader = ''): string => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -73,6 +76,7 @@ const buildEmailLayout = (title: string, contentHtml: string): string => `<!DOCT
   </style>
 </head>
 <body>
+  ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">${preheader}</div>` : ''}
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="email-bg"><tr><td align="center">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="container">
       <tr><td class="topbar">Premium packaging solutions for ecommerce, shipping and bulk business orders</td></tr>
@@ -392,6 +396,104 @@ export const buildBackInStockHtml = async (productId: string, fallbackSubject = 
   }, fallbackSubject);
 };
 
+// Escape user-authored text before dropping it into the email HTML.
+const escapeHtml = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+// Attribute-safe (href / src) escaping — keeps the value from breaking out of
+// the quoted attribute.
+const escapeAttr = (value: unknown): string =>
+  String(value ?? '').replace(/"/g, '%22').replace(/</g, '%3C').replace(/>/g, '%3E').trim();
+
+// 'branded' wraps composed fields in the Prem header/footer template; 'custom'
+// sends the author's full HTML document verbatim (design top-to-bottom, any brand).
+export type PromotionalLayout = 'branded' | 'custom';
+
+export interface IPromotionalContent {
+  subject: string;
+  previewText?: string;
+  mode?: PromotionalLayout;
+  // Full-custom mode: the complete email HTML authored in the composer.
+  html?: string;
+  // Branded mode: the composed building blocks.
+  heading?: string;
+  body?: string;
+  imageUrl?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+}
+
+/**
+ * Inject the recipient's real unsubscribe link into a full-custom email. Authors
+ * can place `{{unsubscribe_url}}` (or `{{unsubscribe}}`) anywhere in their HTML;
+ * if they include no unsubscribe reference at all we append a minimal footer so
+ * every promotional send stays compliant.
+ */
+const applyCustomUnsubscribe = (html: string, unsubscribeUrl: string): string => {
+  let out = String(html || '').replace(/\{\{\s*unsubscribe(?:_url)?\s*\}\}/gi, escapeAttr(unsubscribeUrl));
+  if (!/unsubscribe/i.test(out)) {
+    const footer = `<div style="text-align:center;padding:18px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#94a3b8;">`
+      + `<a href="${escapeAttr(unsubscribeUrl)}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe</a> from these emails.</div>`;
+    out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `${footer}</body>`) : out + footer;
+  }
+  return out;
+};
+
+// Looks like the author hand-wrote HTML (a tag such as <p>, <div>, <table>…).
+const looksLikeHtml = (value: string): boolean => /<[a-z][\s\S]*>/i.test(value);
+
+/**
+ * Turn the composer's body into email HTML. The Promotional Email composer is an
+ * admin-only, trusted surface, so an author who writes HTML tags gets that markup
+ * rendered verbatim (full design freedom). Plain text is auto-formatted: blank
+ * lines become paragraphs and single newlines become <br>.
+ */
+export const renderPromotionalBody = (body: string): string => {
+  const raw = String(body || '');
+  if (!raw.trim()) return '';
+  if (looksLikeHtml(raw)) return raw;
+  return raw
+    .split(/\n{2,}/)
+    .filter((p) => p.trim().length > 0)
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+};
+
+/**
+ * Rich promotional email: optional hero image, heading, body (plain text OR
+ * hand-written HTML — see renderPromotionalBody), an optional CTA button and a
+ * per-recipient unsubscribe footer. This is the exact markup the admin composer
+ * previews.
+ */
+export const buildPromotionalHtml = (content: IPromotionalContent, unsubscribeUrl: string): string => {
+  // Full-custom mode: author owns the entire document — no Prem wrapper.
+  if (content.mode === 'custom') {
+    return applyCustomUnsubscribe(content.html || '', unsubscribeUrl);
+  }
+
+  const heroHtml = content.imageUrl
+    ? `<img src="${escapeAttr(content.imageUrl)}" alt="" style="width:100%;max-width:100%;border-radius:14px;margin:0 0 26px;display:block;">`
+    : '';
+  const headingHtml = content.heading ? `<h1>${escapeHtml(content.heading)}</h1>` : '';
+  const paragraphs = renderPromotionalBody(content.body || '');
+  const ctaHtml = content.ctaLabel && content.ctaUrl
+    ? `<div style="text-align:center;margin-top:28px;"><a href="${escapeAttr(content.ctaUrl)}" class="btn" style="color:#ffffff !important;">${escapeHtml(content.ctaLabel)}</a></div>`
+    : '';
+  const unsubscribeHtml = `
+    <div style="text-align:center;margin-top:34px;border-top:1px solid #e2e8f0;padding-top:18px;">
+      <p style="font-size:12px;color:#94a3b8;margin:0;line-height:1.6;">
+        You are receiving this email because you subscribed or shopped with Prem Packaging.<br>
+        <a href="${escapeAttr(unsubscribeUrl)}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe</a> from promotional emails.
+      </p>
+    </div>`;
+  const inner = `${heroHtml}${headingHtml}${paragraphs}${ctaHtml}${unsubscribeHtml}`;
+  return buildEmailLayout(content.subject || 'Prem Packaging', inner, content.previewText || '');
+};
+
 // Simple branded email for admin-composed broadcasts (title + free-text body).
 export const buildBroadcastHtml = (title: string, body: string): string => {
   const paragraphs = String(body || '')
@@ -502,6 +604,31 @@ export const emailHandlers: Record<string, (data: Record<string, any>) => Promis
       if (failed > 0) {
         throw new Error(`custom-broadcast: ${failed}/${emails.length} sends failed`);
       }
+    }
+  },
+  // One chunk of a promotional campaign. Sends personalised (per-recipient
+  // unsubscribe link) emails and records progress on the campaign document.
+  // Never throws: a partial SMTP failure must not trigger a BullMQ retry that
+  // would re-send to everyone in the chunk (duplicate emails). Failed addresses
+  // are counted so the admin can see them and resend.
+  'promotional-email': async (data) => {
+    const recipients = data.recipients as Array<{ email: string; name?: string }>;
+    if (!Array.isArray(recipients) || recipients.length === 0) return;
+    const content: IPromotionalContent = {
+      subject: (data.subject as string) || 'News from Prem Packaging',
+      previewText: data.previewText as string,
+      ...((data.content as Record<string, unknown>) || {}),
+    };
+    let ok = 0;
+    let failed = 0;
+    for (const r of recipients) {
+      if (!r?.email) { failed += 1; continue; }
+      const html = buildPromotionalHtml(content, buildUnsubscribeUrl(r.email));
+      if (await sendEmail({ to: r.email, subject: content.subject, html })) ok += 1;
+      else failed += 1;
+    }
+    if (data.campaignId) {
+      await recordCampaignProgress(data.campaignId as string, ok, failed);
     }
   },
 };

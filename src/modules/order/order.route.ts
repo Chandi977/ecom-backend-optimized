@@ -17,14 +17,19 @@ import {
 const router = Router();
 
 router.post('/order/create', userMiddleware, validate(createOrderSchema), createOrder);
-router.get('/order/all/orders', adminMiddleware, allOrders);
+// Order data reads are gated on `order:read` so the `seo` role cannot read customer
+// orders. `/order/count*` below is deliberately left ungated — see the note there.
+router.get('/order/all/orders', adminMiddleware, authorize('order:read'), allOrders);
 router.get('/order/get/:id', userMiddleware, specificOrder);
 router.put('/order/update', adminMiddleware, authorize('order:write'), validate(updateOrderSchema), updateOrder);
 router.put('/order/update/shipping', adminMiddleware, authorize('order:write'), validate(updateOrderShippingSchema), updateOrderShipping);
 router.put('/order/update/tracking', adminMiddleware, authorize('order:write'), validate(updateOrderTrackingSchema), updateOrderTracking);
 router.put('/order/update/delivered', adminMiddleware, authorize('order:write'), validate(updateOrderDeliveredSchema), updateOrderDelivered);
-router.get('/order/search', adminMiddleware, searchOrder);
+router.get('/order/search', adminMiddleware, authorize('order:read'), searchOrder);
 router.get('/my/orders/:email', optionalAuth, getOrdersByEmail);
+// Aggregate counts only (no customer data). Left on plain adminMiddleware because
+// the legacy shared admin Dashboard reads them for every panel role, including
+// `catalog-manager`, which has no `order:read` — gating these would break its tiles.
 router.get('/order/count/status', adminMiddleware, countOrderStatus);
 router.get('/order/count', adminMiddleware, countOrders);
 router.get('/order/latest/:email', userMiddleware, latestOrderByEmail);

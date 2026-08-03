@@ -9,6 +9,7 @@ import UserDevice from './user-device.model';
 import { TEMPLATE_DEFAULTS, seedTemplates } from './notification-template.service';
 import { dispatch } from './custom-notification.service';
 import { logger } from '../../utils/logger';
+import { User } from '../../models';
 
 /* ----------------------------- Template management ----------------------------- */
 
@@ -86,17 +87,76 @@ export const updateTemplate = async (req: IAuthRequest, res: Response): Promise<
 
 /* ------------------------------ Admin broadcasts ------------------------------ */
 
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const searchNotificationRecipients = async (req: IAuthRequest, res: Response): Promise<void> => {
+  try {
+    const query = String(req.query.q || '').trim();
+    if (query.length < 2) {
+      res.status(200).json(commonResponse('Enter at least 2 characters', true, []));
+      return;
+    }
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+    const tokenFilters = query
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((token) => {
+        const pattern = new RegExp(escapeRegex(token), 'i');
+        return {
+          $or: [
+            { first_name: pattern },
+            { last_name: pattern },
+            { email_address: pattern },
+            { mobile_number: pattern },
+            { user_id: pattern },
+          ],
+        };
+      });
+
+    const textFilter = tokenFilters.length === 1 ? tokenFilters[0] : { $and: tokenFilters };
+    const filter = mongoose.isValidObjectId(query)
+      ? { $or: [{ _id: query }, textFilter] }
+      : textFilter;
+
+    const users = await User.find(filter)
+      .select('_id first_name last_name email_address mobile_number role user_id')
+      .sort({ first_name: 1, last_name: 1, createdAt: -1 })
+      .limit(limit)
+      .lean()
+      .exec();
+
+    res.status(200).json(commonResponse('Notification recipients fetched successfully', true, users));
+  } catch (error) {
+    logger.error('Notification recipient search failed', {
+      error: error instanceof Error ? error.message : 'Unknown',
+    });
+    res.status(500).json(commonResponse('Internal Server Error', false));
+  }
+};
+
 export const sendNotification = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { audience = 'all', role, userIds, title, body, data: payload, email } = req.body;
     if (!title) {
       res.status(400).json(commonResponse('title is required', false)); return;
     }
+    if (audience === 'users' && (!Array.isArray(userIds) || userIds.length === 0)) {
+      res.status(400).json(commonResponse('Select at least one recipient', false)); return;
+    }
+    const normalizedUserIds = audience === 'users'
+      ? [...new Set(userIds.map((id: string) => String(id).trim()))]
+      : userIds;
+    if (audience === 'users' && normalizedUserIds.some((id: string) => !mongoose.isValidObjectId(id))) {
+      res.status(400).json(commonResponse('One or more recipient IDs are invalid', false)); return;
+    }
 
     const result = await dispatch({
       audience,
       role,
-      userIds,
+      userIds: normalizedUserIds,
       title,
       body: body || '',
       data: payload || {},

@@ -7,14 +7,16 @@ const router = Router();
 
 // optionalAuth lets guests submit while linking the lead to logged-in users.
 router.post('/lead/create', optionalAuth, validate(createLeadSchema), createLead);
-router.get('/lead/get', adminMiddleware, getLeads);
-router.get('/lead/count', adminMiddleware, countLeads);
+// Lead reads carry customer contact details — gated on `lead:read` so the `seo`
+// role cannot mine the CRM.
+router.get('/lead/get', adminMiddleware, authorize('lead:read'), getLeads);
+router.get('/lead/count', adminMiddleware, authorize('lead:read'), countLeads);
 // Bulk CSV import of historical leads (admin) — registered before the :id
 // routes so "import" is never treated as an id.
 router.post('/lead/import', adminMiddleware, authorize('contact:write'), validate(importLeadsSchema), importLeads);
 // Manual lead creation from the CRM (admin) — no email is sent.
 router.post('/lead/admin-create', adminMiddleware, authorize('contact:write'), validate(adminCreateLeadSchema), adminCreateLead);
-router.get('/lead/:id', adminMiddleware, getLead);
+router.get('/lead/:id', adminMiddleware, authorize('lead:read'), getLead);
 // On-demand deliverability check (real MX lookup) for a single lead.
 router.post('/lead/:id/verify-email', adminMiddleware, authorize('contact:write'), verifyLeadEmail);
 // CRM update: contact/enquiry fields, pipeline status, owner, follow-up, notes.

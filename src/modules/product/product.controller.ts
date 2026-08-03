@@ -11,6 +11,7 @@ import { normalizeMojibakeInObject } from '../../utils/text-encoding';
 import { processImages, attachSignedImagesToProducts, getSignedUrlForKey, uploadToS3, deleteFromS3 } from '../../utils/s3';
 import { sanitizeOverviewFields } from '../../utils/overview-fields';
 import { sanitizeFieldVisibility } from '../../utils/field-visibility';
+import { hasSeoContent, ISeoContent } from '../../utils/seo-content';
 
 import { IAuthRequest, IImageSignOptions } from '../../types';
 import { logger } from '../../utils/logger';
@@ -90,6 +91,53 @@ const getCategoryOverviewFields = async (categoryId?: string) => {
   if (!id) return [];
   const category = await Category.findById(id).select('overview_fields').lean().exec();
   return Array.isArray(category?.overview_fields) ? category.overview_fields : [];
+};
+
+/**
+ * Resolves the sub-category SEO copy + FAQ a product page should render.
+ *
+ * Prefers the product's own `sub_category` (already populated). Legacy products
+ * are linked only to a Category that mirrors a sub-category by name/slug (see
+ * getAllSubCategories) — for those we fall back to the SubCategory carrying the
+ * same name/slug, so one authored block covers both linking styles.
+ *
+ * Returns the block plus the sub-category it came from, so the storefront can
+ * title the section ("About Corrugated Boxes") without a second request.
+ */
+const resolveSubCategorySeoContent = async (
+  product: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> => {
+  const toBlock = (source: Record<string, unknown> | null | undefined) => {
+    if (!source || !hasSeoContent(source.seo_content)) return null;
+    return {
+      ...(source.seo_content as ISeoContent),
+      sub_category_name: source.name,
+      sub_category_slug: source.slug,
+    };
+  };
+
+  const linked = product.sub_category;
+  if (linked && typeof linked === 'object') {
+    const block = toBlock(linked as Record<string, unknown>);
+    if (block) return block;
+  }
+
+  const category = product.category;
+  if (!category || typeof category !== 'object') return null;
+  const { name, slug } = category as Record<string, unknown>;
+  const matches = [name, slug]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => new RegExp(`^${escapeRegex(String(value).trim())}$`, 'i'));
+  if (!matches.length) return null;
+
+  const legacy = await SubCategory.findOne({
+    $or: [{ name: { $in: matches } }, { slug: { $in: matches } }],
+  })
+    .select('name slug seo_content')
+    .lean()
+    .exec();
+
+  return toBlock(legacy as Record<string, unknown> | null);
 };
 
 const getCategoryIdFromProduct = (category: unknown): string | undefined => {
@@ -285,6 +333,7 @@ export const getProduct = async (req: IAuthRequest, res: Response): Promise<void
     const productData = flattenProductCatalog(data) as Record<string, unknown>;
     productData.images = await processImages(productData.images as any[], IMAGE_SIGN_OPTIONS);
     productData.category_overview_fields = await getCategoryOverviewFields(getCategoryIdFromProduct(productData.category));
+    productData.sub_category_seo_content = await resolveSubCategorySeoContent(productData);
     res.status(200).json(commonResponse('Product found', true, productData));
   } catch (error) { res.status(500).json(commonResponse('Internal server error', false)); }
 };

@@ -71,14 +71,20 @@ export const getCategory = async (req: IAuthRequest, res: Response): Promise<voi
 export const updateCategory = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { id, name, category_id, meta_title, meta_description, overview_fields, gst, field_visibility, common_attributes, spec_schema, hsn_code, sac_code, tax_category, delivery_time } = req.body;
-    const update: Record<string, unknown> = {
-      name,
-      slug: slugify(name),
-      category_id,
-      meta_title,
-      meta_description,
-      overview_fields: sanitizeOverviewFields(overview_fields),
-    };
+    // Only touch what was actually sent. These five used to be assigned
+    // unconditionally, which made slugify(undefined) throw on any partial update —
+    // and a partial update is exactly what the field-scoped `seo` role sends, since
+    // SEO_CATEGORY_FIELDS deliberately excludes `name`. Mongoose already strips
+    // undefined values from an update, so guarding them changes nothing else.
+    const update: Record<string, unknown> = {};
+    if (name !== undefined) {
+      update.name = name;
+      update.slug = slugify(name);
+    }
+    if (category_id !== undefined) update.category_id = category_id;
+    if (meta_title !== undefined) update.meta_title = meta_title;
+    if (meta_description !== undefined) update.meta_description = meta_description;
+    if (overview_fields !== undefined) update.overview_fields = sanitizeOverviewFields(overview_fields);
     if (hsn_code !== undefined) update.hsn_code = hsn_code;
     if (sac_code !== undefined) update.sac_code = sac_code;
     if (tax_category !== undefined) update.tax_category = tax_category;

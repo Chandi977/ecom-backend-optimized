@@ -19,13 +19,22 @@ const numericRange = z.union([
 ]);
 
 // ─── Auth ───────────────────────────────────────────────────────────
+// Every role that may be assigned to an account. Mirrors config/rbac.ts
+// (ADMIN_PANEL_ROLES + the storefront `user` role) and is re-checked in
+// auth.controller before the role is persisted.
+export const ASSIGNABLE_ROLES = ['user', 'admin', 'manager', 'general', 'seo', 'catalog-manager'] as const;
+export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
+// `''` is tolerated and treated as "not supplied" by the controller (`role || 'user'`),
+// preserving the public-signup path for clients that post an empty role field.
+const assignableRole = z.union([z.enum(ASSIGNABLE_ROLES), z.literal('')]);
+
 export const signupSchema = z.object({
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().optional(),
   email_address: emailStr,
   password: z.string().min(6, 'Password must be at least 6 characters'),
   mobile_number: z.string().optional(),
-  role: z.string().optional(),
+  role: assignableRole.optional(),
   gender: z.string().optional(),
   user_id: z.string().optional(),
 });
@@ -58,7 +67,7 @@ export const editUserSchema = z.object({
   last_name: z.string().optional(),
   email_address: emailStr.optional(),
   mobile_number: z.string().optional(),
-  role: z.string().optional(),
+  role: assignableRole.optional(),
   id: mongoId,
   user_id: z.string().optional(),
   contact_address: z.array(z.object({
@@ -428,6 +437,21 @@ export const deleteCategorySchema = z.object({
 });
 
 // ─── SubCategory ────────────────────────────────────────────────────
+// Sub-category SEO copy + FAQ. Content is normalized/capped by
+// sanitizeSeoContent before it is persisted, so this only checks the shape.
+const seoContentSchema = z.object({
+  heading: z.string().optional(),
+  description: z.string().optional(),
+  faqs: z
+    .array(
+      z.object({
+        question: z.string().optional(),
+        answer: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
 export const createSubCategorySchema = z.object({
   name: z.string().min(1, 'Subcategory name is required'),
   category: z.string().optional(),
@@ -439,6 +463,7 @@ export const createSubCategorySchema = z.object({
   delivery_time: z.string().optional(),
   common_attributes: z.record(z.string(), z.unknown()).optional(),
   pack_sizes: z.array(z.number()).optional(),
+  seo_content: seoContentSchema.optional(),
 });
 
 export const updateSubCategorySchema = z.object({
@@ -453,6 +478,7 @@ export const updateSubCategorySchema = z.object({
   delivery_time: z.string().optional(),
   common_attributes: z.record(z.string(), z.unknown()).optional(),
   pack_sizes: z.array(z.number()).optional(),
+  seo_content: seoContentSchema.optional(),
 });
 
 export const deleteSubCategorySchema = z.object({
@@ -1015,4 +1041,33 @@ export const registerDeviceSchema = z.object({
 
 export const unregisterDeviceSchema = z.object({
   token: z.string().min(1, 'token is required'),
+});
+
+// ─── Product Reviews ────────────────────────────────────────────────
+const reviewRating = z.coerce.number().int('Rating must be a whole number').min(1, 'Rating must be at least 1').max(5, 'Rating must be at most 5');
+const reviewComment = z.string().trim().min(3, 'Please write a few words').max(3000, 'Review is too long');
+const reviewTitle = z.string().trim().max(150, 'Title is too long').optional();
+const reviewImages = z.array(z.string()).max(6, 'At most 6 images').optional();
+
+export const createReviewSchema = z.object({
+  productId: mongoId,
+  rating: reviewRating,
+  title: reviewTitle,
+  comment: reviewComment,
+  images: reviewImages,
+});
+
+export const updateReviewSchema = z.object({
+  rating: reviewRating.optional(),
+  title: reviewTitle,
+  comment: reviewComment.optional(),
+  images: reviewImages,
+});
+
+export const reviewStatusSchema = z.object({
+  status: z.enum(['approved', 'rejected'], { message: 'Status must be "approved" or "rejected"' }),
+});
+
+export const reviewReplySchema = z.object({
+  message: z.string().trim().min(1, 'Reply message is required').max(2000, 'Reply is too long'),
 });

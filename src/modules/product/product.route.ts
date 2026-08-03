@@ -7,7 +7,8 @@ import {
   SingleProduct, filterBoppProducts, filterPolyProducts, filterLabelProducts,
   SingleProductWithImage, addRelatedProducts, addBuyItWithProducts,
 } from './product.controller';
-import { adminMiddleware, authorize, validate } from '../../middleware';
+import { adminMiddleware, authorize, authorizeScoped, validate } from '../../middleware';
+import { SEO_PRODUCT_FIELDS } from '../../config/rbac';
 import {
   createProductSchema, updateProductSchema, deleteProductSchema,
   addRelatedProductsSchema, searchMainProductsSchema,
@@ -24,7 +25,13 @@ router.post('/product/create', adminMiddleware, authorize('product:create'), val
 router.get('/product/get', getProducts);
 router.get('/product/get/id/:id', getProductById);
 router.get('/product/get/:slug', getProduct);
-router.put('/product/update', adminMiddleware, authorize('product:update'), validate(updateProductSchema), updateProduct);
+// The `seo` role has no `product:update`, so it falls through to the scoped grant
+// and its body is reduced to SEO_PRODUCT_FIELDS before zod sees it — price, stock,
+// GST, images and name are dropped rather than rejected.
+router.put('/product/update', adminMiddleware, authorizeScoped(
+  { permissions: ['product:update'] },
+  { permissions: ['seo:write'], fields: SEO_PRODUCT_FIELDS },
+), validate(updateProductSchema), updateProduct);
 router.post('/product/:id/related/add', adminMiddleware, authorize('product:update'), validate(addRelatedProductsSchema), addRelatedProducts);
 router.post('/product/:id/buy-it-with/add', adminMiddleware, authorize('product:update'), validate(addBuyItWithProductsSchema), addBuyItWithProducts);
 router.post('/product/delete', adminMiddleware, authorize('product:delete'), validate(deleteProductSchema), deleteProduct);

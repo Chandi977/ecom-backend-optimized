@@ -30,3 +30,6 @@ export { default as NotificationTemplate } from '../modules/notification/notific
 export { default as Notification } from '../modules/notification/notification.model';
 export { default as NotificationCampaign } from '../modules/notification/notification-campaign.model';
 export { default as UserDevice } from '../modules/notification/user-device.model';
+export { default as Subscriber } from '../modules/marketing/subscriber.model';
+export { default as EmailCampaign } from '../modules/marketing/email-campaign.model';
+export { default as Review } from '../modules/review/review.model';

@@ -5,7 +5,8 @@ import { commonResponse } from '../../utils/response';
 import { validateEmail } from '../../utils/validators';
 import { hashPassword, comparePassword } from '../../utils/validators/password-hash';
 import { IAuthPayload, IAuthRequest } from '../../types';
-import { isFullAccessRole } from '../../config/rbac';
+import { isFullAccessRole, roleCan } from '../../config/rbac';
+import { ASSIGNABLE_ROLES } from '../../utils/validators/zod-schemas';
 import { logger } from '../../utils/logger';
 import { dispatchEmail } from '../../queue/email-dispatch';
 import {
@@ -92,6 +93,11 @@ const getRefreshTokenFromBody = (body: Record<string, unknown>): string | null =
   return typeof token === 'string' && token.trim() ? token : null;
 };
 
+// Defence in depth: the zod schemas already constrain `role`, but role assignment is
+// the one field that escalates privilege, so it is re-checked before it is persisted.
+const isAssignableRole = (role: unknown): boolean =>
+  typeof role === 'string' && (ASSIGNABLE_ROLES as readonly string[]).includes(role);
+
 const sendRevocationStoreUnavailable = (res: Response): void => {
   res.status(503).json(commonResponse('Authentication revocation store unavailable. Please try again later.', false));
 };
@@ -110,9 +116,13 @@ export const signup = async (req: IAuthRequest, res: Response): Promise<void> =>
     // Security: public signups can only create plain users. If the admin UI asks
     // for a privileged role, fail loudly instead of silently creating a normal user.
     const requestedRole = role || 'user';
+    if (!isAssignableRole(requestedRole)) {
+      res.status(400).json(commonResponse(`Invalid role. Expected one of: ${ASSIGNABLE_ROLES.join(', ')}.`, false));
+      return;
+    }
     if (requestedRole !== 'user' && !isFullAccessRole(req.userRole)) {
       res.status(req.userRole ? 403 : 401).json(
-        commonResponse('Only an admin can create admin or catalog-manager accounts.', false)
+        commonResponse('Only an admin or manager can create staff accounts.', false)
       );
       return;
     }
@@ -374,7 +384,10 @@ export const editUser = async (req: IAuthRequest, res: Response): Promise<void> 
   try {
     const { first_name, last_name, email_address, mobile_number, role, id, user_id, contact_address } = req.body;
     if (!id) { res.status(403).json(commonResponse('id not found', false)); return; }
-    if (req.userRole !== 'admin' && req.user !== id) { res.status(403).json(commonResponse('Forbidden', false)); return; }
+    // Full-access roles (admin, manager) may edit any account; everyone else only
+    // their own. Editing OTHER people's records stays deliberately narrow — the
+    // customer-facing admin pages gate their edit controls on `user:write`.
+    if (!isFullAccessRole(req.userRole) && req.user !== id) { res.status(403).json(commonResponse('Forbidden', false)); return; }
     if (email_address && !validateEmail(email_address)) { res.status(400).json(commonResponse('Invalid email', false)); return; }
 
     const update: Record<string, unknown> = {};
@@ -384,7 +397,16 @@ export const editUser = async (req: IAuthRequest, res: Response): Promise<void> 
     if (mobile_number !== undefined) update.mobile_number = mobile_number;
     if (contact_address !== undefined) update.contact_address = contact_address;
     if (req.userRole === 'admin') {
-      if (role !== undefined) update.role = role;
+      // The admin form posts the current role back as free text, so '' means "not
+      // supplied" and is left unchanged; anything else must be a real role. Same
+      // enum guard as signup — never let an arbitrary string become a role.
+      if (role !== undefined && role !== '') {
+        if (!isAssignableRole(role)) {
+          res.status(400).json(commonResponse(`Invalid role. Expected one of: ${ASSIGNABLE_ROLES.join(', ')}.`, false));
+          return;
+        }
+        update.role = role;
+      }
       if (user_id !== undefined) update.user_id = user_id;
     }
 
@@ -399,7 +421,9 @@ export const specificuser = async (req: IAuthRequest, res: Response): Promise<vo
   try {
     const { id } = req.params;
     if (!id) { res.status(403).json(commonResponse('id not found', false)); return; }
-    if (req.userRole !== 'admin' && req.user !== id) { res.status(403).json(commonResponse('Forbidden', false)); return; }
+    // Any role holding customer:read may open a customer's detail page (the admin
+    // Customers list links straight here); otherwise callers see only themselves.
+    if (!roleCan(req.userRole, 'customer:read') && req.user !== id) { res.status(403).json(commonResponse('Forbidden', false)); return; }
     const data = await User.findOne({ _id: id }).exec();
     res.status(data ? 200 : 400).json(commonResponse(data ? 'user found' : 'user not found', !!data, data || undefined));
   } catch (error) {
