@@ -443,6 +443,8 @@ export interface ICoupon {
   usedCount: number;
   isActive: boolean;
   appliesTo?: string;
+  scopeValue?: string;
+  couponUse?: string;
   createdAt: Date;
   updatedAt: Date;
 }

@@ -12,7 +12,8 @@ export interface CalculationItemInput {
 }
 
 export interface CouponInput {
-  type: 'all' | 'shipping' | 'both' | 'product';
+  type?: 'all' | 'shipping' | 'both' | 'product';
+  couponType?: string;
   code: string;
   discountPercentage?: number;
   discountPrice?: number;
@@ -60,6 +61,11 @@ export const calculateCartTotals = async (
   shippingCost: number,
   coupon?: CouponInput | null,
 ): Promise<CartCalculationResult> => {
+  // Normalize: accept either `type` or `couponType` (web sends couponType).
+  if (coupon && !coupon.type && coupon.couponType) {
+    coupon.type = coupon.couponType as CouponInput['type'];
+  }
+
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   let productSavings = 0;
