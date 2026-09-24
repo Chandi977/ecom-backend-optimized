@@ -774,6 +774,8 @@ export const createCouponSchema = z.object({
   validTo: z.string().min(1, 'Valid to date is required'),
   usageLimit: coerceNum.optional(),
   appliesTo: z.string().optional(),
+  scopeValue: z.string().optional(),
+  couponUse: z.enum(['single', 'multiple']).optional(),
 });
 
 export const updateCouponSchema = z.object({
@@ -789,6 +791,8 @@ export const updateCouponSchema = z.object({
   usageLimit: coerceNum.optional(),
   appliesTo: z.string().optional(),
   isActive: coerceBool.optional(),
+  scopeValue: z.string().optional(),
+  couponUse: z.enum(['single', 'multiple']).optional(),
 });
 
 export const deleteCouponSchema = z.object({

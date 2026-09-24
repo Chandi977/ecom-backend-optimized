@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import User from '../auth/auth.model';
+import Coupon from '../coupon/coupon.model';
 import { commonResponse } from '../../utils/response';
 import { validateEmail } from '../../utils/validators';
 import { hashPassword, comparePassword } from '../../utils/validators/password-hash';
@@ -595,8 +596,28 @@ export const updateCouponCode = async (req: IAuthRequest, res: Response): Promis
   try {
     const { userId, couponCode } = req.body;
     if (!userId || !couponCode) { res.status(400).json({ error: 'userId and couponCode are required' }); return; }
-    const user = await User.findOneAndUpdate({ _id: userId }, { $addToSet: { couponUsed: couponCode } }, { new: true });
+
+    // Only the authenticated caller may mark their own coupon as used, never another
+    // user's. Guards against one person burning another user's single-use coupon.
+    if (String(req.user) !== String(userId)) {
+      res.status(403).json({ error: 'Forbidden' }); return;
+    }
+
+    const normalizedCode = String(couponCode).toUpperCase();
+
+    const user = await User.findOneAndUpdate(
+      { _id: userId },
+      { $addToSet: { couponUsed: normalizedCode } },
+      { new: true },
+    ).exec();
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    // Increment the coupon's real usage counter so usageLimit can be enforced.
+    const coupon = await Coupon.findOne({ couponCode: normalizedCode }).lean().exec();
+    if (coupon) {
+      await Coupon.updateOne({ couponCode: normalizedCode }, { $inc: { usedCount: 1 } }).exec();
+    }
+
     res.status(200).json({ message: 'Coupon added successfully', success: true });
   } catch (error) {
     res.status(500).json({ error: 'An error occurred' });
