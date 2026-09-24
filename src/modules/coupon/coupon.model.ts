@@ -13,6 +13,8 @@ export interface ICouponDocument extends Document {
   usedCount: number;
   isActive: boolean;
   appliesTo?: string;
+  scopeValue?: string;
+  couponUse?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +32,8 @@ const couponSchema = new Schema<ICouponDocument>({
   usedCount: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
   appliesTo: { type: String },
+  scopeValue: { type: String },
+  couponUse: { type: String, enum: ['single', 'multiple'], default: 'single' },
 }, {
   timestamps: true,
 });

@@ -5,11 +5,11 @@ import { IAuthRequest } from '../../types';
 
 export const createCoupon = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { couponCode, description, discountType, discountValue, maxDiscount, minOrderValue, validFrom, validTo, usageLimit, appliesTo } = req.body;
+    const { couponCode, description, discountType, discountValue, maxDiscount, minOrderValue, validFrom, validTo, usageLimit, appliesTo, scopeValue, couponUse } = req.body;
     if (!couponCode || !discountType || discountValue === undefined || !validFrom || !validTo) {
       res.status(400).json(commonResponse('Invalid fields', false)); return;
     }
-    const coupon = new Coupon({ couponCode, description, discountType, discountValue, maxDiscount, minOrderValue, validFrom, validTo, usageLimit, appliesTo });
+    const coupon = new Coupon({ couponCode: couponCode?.toUpperCase(), description, discountType, discountValue, maxDiscount, minOrderValue, validFrom, validTo, usageLimit, appliesTo, scopeValue, couponUse: couponUse || 'single' });
     const data = await coupon.save();
     res.status(data ? 201 : 400).json(commonResponse(data ? 'Coupon created successfully' : 'Coupon not created', !!data, data || undefined));
   } catch (error) {
@@ -49,7 +49,7 @@ export const getSingleCoupon = async (req: IAuthRequest, res: Response): Promise
 export const getCouponByCouponCode = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { couponCode } = req.params;
-    const data = await Coupon.findOne({ couponCode }).exec();
+    const data = await Coupon.findOne({ couponCode: couponCode?.toUpperCase() }).exec();
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Coupon found' : 'Coupon not found', !!data, data || undefined));
   } catch (error) {
     res.status(500).json(commonResponse('Internal Server Error', false));
@@ -58,9 +58,9 @@ export const getCouponByCouponCode = async (req: IAuthRequest, res: Response): P
 
 export const updateCoupon = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const { _id, couponCode, description, discountType, discountValue, maxDiscount, minOrderValue, validFrom, validTo, usageLimit, appliesTo, isActive } = req.body;
+    const { _id, couponCode, description, discountType, discountValue, maxDiscount, minOrderValue, validFrom, validTo, usageLimit, appliesTo, isActive, scopeValue, couponUse } = req.body;
     const update: Record<string, unknown> = {};
-    if (couponCode !== undefined) update.couponCode = couponCode;
+    if (couponCode !== undefined) update.couponCode = couponCode?.toUpperCase?.() || couponCode;
     if (description !== undefined) update.description = description;
     if (discountType !== undefined) update.discountType = discountType;
     if (discountValue !== undefined) update.discountValue = discountValue;
@@ -71,6 +71,8 @@ export const updateCoupon = async (req: IAuthRequest, res: Response): Promise<vo
     if (usageLimit !== undefined) update.usageLimit = usageLimit;
     if (appliesTo !== undefined) update.appliesTo = appliesTo;
     if (isActive !== undefined) update.isActive = isActive;
+    if (scopeValue !== undefined) update.scopeValue = scopeValue;
+    if (couponUse !== undefined) update.couponUse = couponUse;
 
     const updatedCoupon = await Coupon.findOneAndUpdate({ _id }, update, { new: true }).exec();
     res.status(updatedCoupon ? 200 : 404).json(commonResponse(updatedCoupon ? 'Coupon updated successfully' : 'Coupon not found', !!updatedCoupon, updatedCoupon || undefined));
