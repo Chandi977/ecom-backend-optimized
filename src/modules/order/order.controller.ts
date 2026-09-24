@@ -14,8 +14,12 @@ import { logger } from '../../utils/logger';
 import { addJob, emailQueue, orderQueue } from '../../queue';
 import { resolvePaymentStatus, deriveOrderStatus } from '../../services/order.service';
 import { IStockItem, toStockItems } from '../../services/stock.service';
-import { notifyUserEvent } from '../notification/custom-notification.service';
 import { withLock } from '../../utils/concurrency/lock';
+import {
+  notifyOrderPaymentFailed,
+  notifyOrderPaymentReferenceSubmitted,
+  notifyOrderStatusChange,
+} from './order-notification.service';
 
 if (!config.razorpay.keyId || !config.razorpay.keySecret) {
   throw new Error('Razorpay env vars missing');
@@ -214,7 +218,10 @@ export const specificOrder = async (req: IAuthRequest, res: Response): Promise<v
 export const updateOrder = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { status, id } = req.body;
+    const current = await Order.findById(id).select('status').lean().exec();
+    if (!current) { res.status(404).json(commonResponse('Not found', false)); return; }
     const data = await Order.findOneAndUpdate({ _id: id }, { status }, { new: true }).exec();
+    await notifyOrderStatusChange(data, current.status);
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Order updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };
@@ -222,7 +229,10 @@ export const updateOrder = async (req: IAuthRequest, res: Response): Promise<voi
 export const updateOrderShipping = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { shippingDate, id, status } = req.body;
+    const current = await Order.findById(id).select('status').lean().exec();
+    if (!current) { res.status(404).json(commonResponse('Not found', false)); return; }
     const data = await Order.findOneAndUpdate({ _id: id }, { shippingDate, status }, { new: true }).exec();
+    await notifyOrderStatusChange(data, current.status);
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Shipping updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };
@@ -232,10 +242,7 @@ export const updateOrderTracking = async (req: IAuthRequest, res: Response): Pro
     const { trackingId, id, deliveryPartner } = req.body;
     const data = await Order.findOneAndUpdate({ _id: id }, { trackingId, deliveryPartner, status: 'Dispatched' }, { new: true }).exec();
     if (data) {
-      await addJob(emailQueue, 'order-shipped', { to: data.email, subject: 'Your Order has been shipped', order: data.toObject() });
-      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-shipped-push',
-        { name: data.name, orderId: data.orderId, trackingId: data.trackingId, deliveryPartner: data.deliveryPartner },
-        { type: 'order', orderId: String(data._id) });
+      await notifyOrderStatusChange(data, data.status, { force: true });
     }
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Tracking updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
@@ -244,13 +251,10 @@ export const updateOrderTracking = async (req: IAuthRequest, res: Response): Pro
 export const updateOrderDelivered = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const { deliveredDate, id, status } = req.body;
+    const current = await Order.findById(id).select('status').lean().exec();
+    if (!current) { res.status(404).json(commonResponse('Not found', false)); return; }
     const data = await Order.findOneAndUpdate({ _id: id }, { deliveredDate, status }, { new: true }).exec();
-    if (data) {
-      await addJob(emailQueue, 'order-delivered', { to: data.email, subject: 'Your Order has been delivered', order: data.toObject() });
-      await notifyUserEvent(data.user ? String(data.user) : undefined, 'order-delivered-push',
-        { name: data.name, orderId: data.orderId },
-        { type: 'order', orderId: String(data._id) });
-    }
+    await notifyOrderStatusChange(data, current.status);
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Delivery date updated' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };
@@ -316,7 +320,11 @@ export const updateUtrNumber = async (req: IAuthRequest, res: Response): Promise
       { new: true }
     ).exec();
 
-    await addJob(emailQueue, 'payment-utr-submitted', { to: null, subject: 'UTR submitted', order: data });
+    const referenceChanged = String(order.utrNumber || '').trim() !== String(utrNumber).trim();
+    if (referenceChanged) {
+      await addJob(emailQueue, 'payment-utr-submitted', { to: null, subject: 'UTR submitted', order: data });
+      await notifyOrderPaymentReferenceSubmitted(data);
+    }
     res.status(200).json(commonResponse('UTR updated', true, data));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };
@@ -375,8 +383,8 @@ export const updatePaymentStatus = async (req: IAuthRequest, res: Response): Pro
 
     if (requestedVerification && data && data.paymentStatus !== 'Payment Verified') {
       await queuePaymentFinalization(data._id.toString());
-    } else if (nextPaymentStatus === 'Payment Failed') {
-      await addJob(emailQueue, 'payment-failed', { to: data?.email, subject: 'Payment Failed', order: data });
+    } else if (nextPaymentStatus === 'Payment Failed' && order.paymentStatus !== 'Payment Failed') {
+      await notifyOrderPaymentFailed(data);
     }
 
     res.status(200).json(commonResponse(requestedVerification ? 'Payment verification queued' : 'Payment updated', true, data));
@@ -541,13 +549,15 @@ export const markPaymentFailed = async (req: IAuthRequest, res: Response): Promi
   try {
     const { _id, error: paymentError } = req.body;
     if (!_id) { res.status(400).json(commonResponse('Order ID required', false)); return; }
+    const current = await Order.findById(_id).select('paymentStatus').lean().exec();
+    if (!current) { res.status(404).json(commonResponse('Not found', false)); return; }
     const data = await Order.findOneAndUpdate(
       { _id },
       { paymentStatus: 'Payment Failed', paymentFailedAt: new Date(), paymentFailureReason: paymentError?.description || paymentError?.reason || 'Payment failed' },
       { new: true }
     ).exec();
-    if (data) {
-      await addJob(emailQueue, 'payment-failed', { to: data.email, subject: 'Payment Failed', order: data });
+    if (data && current.paymentStatus !== 'Payment Failed') {
+      await notifyOrderPaymentFailed(data);
     }
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Marked failed' : 'Not found', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
@@ -557,6 +567,7 @@ export const cancelUnpaidOrder = async (req: IAuthRequest, res: Response): Promi
   try {
     const { _id } = req.body;
     const data = await Order.findOneAndUpdate({ _id, user: req.user, paymentStatus: 'Not Paid' }, { status: 'Cancelled', paymentStatus: 'Cancelled' }, { new: true }).exec();
+    await notifyOrderStatusChange(data, undefined, { force: true });
     res.status(data ? 200 : 404).json(commonResponse(data ? 'Order cancelled' : 'Not found or already paid', !!data, data || undefined));
   } catch (error) { res.status(500).json(commonResponse('Error', false)); }
 };

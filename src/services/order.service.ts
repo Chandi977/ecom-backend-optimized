@@ -4,6 +4,7 @@ import { addJob, emailQueue } from '../queue';
 import { logger } from '../utils/logger';
 import { withLock } from '../utils/concurrency/lock';
 import { notifyUserEvent } from '../modules/notification/custom-notification.service';
+import { notifyOrderPaymentFailed } from '../modules/order/order-notification.service';
 
 const FAILURE_STATUSES = new Set(['Payment Failed', 'Payment Abandoned', 'Cancelled', 'Expired']);
 
@@ -138,11 +139,7 @@ export const markPaymentFailed = async (orderId: string, reason?: string): Promi
 
   if (!updated) throw new Error(`Unable to mark payment failed for order ${orderId}`);
 
-  await addJob(emailQueue, 'payment-failed', {
-    to: updated.email,
-    subject: 'Payment Failed',
-    order: updated.toObject(),
-  });
+  await notifyOrderPaymentFailed(updated);
 
   logger.info('Order payment marked failed', { orderId });
   return updated;

@@ -191,6 +191,9 @@ export const TEMPLATE_DEFAULTS: Record<string, Omit<ITemplateShape, 'key'>> = {
   'order-placed-email': orderEmailDefault('Order Confirmation', 'Sent when a new order is placed.'),
   'order-shipped-email': orderEmailDefault('Order Shipped', 'Sent when an order is marked shipped.'),
   'order-delivered-email': orderEmailDefault('Order Delivered', 'Sent when an order is marked delivered.'),
+  'order-status-email': orderEmailDefault('Order Status Update', 'Sent when an order moves to another status.'),
+  'payment-failed-email': orderEmailDefault('Payment Failed', 'Sent when payment for an order fails.'),
+  'payment-utr-received-email': orderEmailDefault('Payment Details Received', 'Sent when a customer submits a UTR/payment reference.'),
 
   // ---- Push / in-app templates (mobile) ----
   'custom-broadcast': {
@@ -224,6 +227,30 @@ export const TEMPLATE_DEFAULTS: Record<string, Omit<ITemplateShape, 'key'>> = {
     subject: 'Order delivered',
     variables: ['name', 'orderId'],
     body: 'Your order {{orderId}} has been delivered. Thank you for shopping with Prem Packaging!',
+  },
+  'order-status-push': {
+    channel: 'push',
+    name: 'Order Status Update (push)',
+    description: 'In-app/push notification sent for order statuses without a specialised template.',
+    subject: 'Order status updated',
+    variables: ['name', 'orderId', 'status'],
+    body: 'Hi {{name}}, order {{orderId}} is now {{status}}. Tap to view the latest details.',
+  },
+  'payment-failed-push': {
+    channel: 'push',
+    name: 'Payment Failed (push)',
+    description: 'In-app/push notification sent when payment for an order fails.',
+    subject: 'Payment was not completed',
+    variables: ['name', 'orderId'],
+    body: 'Hi {{name}}, payment for order {{orderId}} was not completed. Please try again from your order details.',
+  },
+  'payment-utr-submitted-push': {
+    channel: 'push',
+    name: 'Payment Reference Received (push)',
+    description: 'In-app/push acknowledgement sent when a customer submits a UTR/payment reference.',
+    subject: 'Payment details received',
+    variables: ['name', 'orderId'],
+    body: 'Hi {{name}}, we received the payment details for order {{orderId}} and will verify them shortly.',
   },
   'back-in-stock-push': {
     channel: 'push',

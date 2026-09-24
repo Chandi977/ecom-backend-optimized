@@ -148,6 +148,9 @@ const ORDER_TEMPLATE_KEYS: Record<string, string> = {
   'order-placed': 'order-placed-email',
   'order-shipped': 'order-shipped-email',
   'order-delivered': 'order-delivered-email',
+  'order-status-updated': 'order-status-email',
+  'payment-failed': 'payment-failed-email',
+  'payment-utr-received': 'payment-utr-received-email',
 };
 
 export const buildOrderHtml = async (
@@ -158,16 +161,17 @@ export const buildOrderHtml = async (
   const templateKey = ORDER_TEMPLATE_KEYS[jobName] || 'order-placed-email';
   const orderStatus = (order.status || 'placed').toLowerCase();
   const paymentStatus = (order.paymentStatus || 'Not Paid').toLowerCase();
+  const isShipped = ['shipped', 'dispatched'].includes(orderStatus);
 
-  let statusColor = '#F02020';
+  let statusColor = '#2563eb';
   let statusLabel = order.status || 'Placed';
-  let statusBadgeClass = 'badge-warning';
+  let statusBadgeClass = 'badge-info';
 
   if (orderStatus === 'delivered') {
     statusColor = '#16a34a';
     statusBadgeClass = 'badge-success';
     statusLabel = 'Delivered';
-  } else if (orderStatus === 'shipped') {
+  } else if (isShipped) {
     statusColor = '#2563eb';
     statusBadgeClass = 'badge-info';
     statusLabel = 'Shipped';
@@ -179,7 +183,7 @@ export const buildOrderHtml = async (
     statusColor = '#dc2626';
     statusBadgeClass = 'badge-danger';
     statusLabel = 'Payment Failed';
-  } else if (paymentStatus === 'paid' || orderStatus === 'confirmed') {
+  } else if (['paid', 'payment verified'].includes(paymentStatus) || ['confirmed', 'payment verified'].includes(orderStatus)) {
     statusColor = '#16a34a';
     statusBadgeClass = 'badge-success';
     statusLabel = 'Confirmed';
@@ -331,8 +335,8 @@ export const buildOrderHtml = async (
   ].filter(Boolean).join('<br>');
 
   const statusDetailsHtml = [
-    orderStatus === 'shipped' && order.trackingId ? `<br>Delivery Partner: <strong>${order.deliveryPartner || 'Courier'}</strong><br>Tracking ID: <strong>${order.trackingId}</strong>` : '',
-    orderStatus === 'shipped' ? `<br>You can track your shipping updates inside your Prem Packaging dashboard.` : '',
+    isShipped && order.trackingId ? `<br>Delivery Partner: <strong>${order.deliveryPartner || 'Courier'}</strong><br>Tracking ID: <strong>${order.trackingId}</strong>` : '',
+    isShipped ? `<br>You can track your shipping updates inside your Prem Packaging dashboard.` : '',
     orderStatus === 'placed' && paymentStatus === 'not paid' ? `<br>Please ensure payment is completed so we can begin processing your packaging items.` : '',
     paymentStatus === 'paid' ? `<br>Payment has been successfully verified. Thank you for your purchase!` : '',
   ].join('');
@@ -557,6 +561,10 @@ export const emailHandlers: Record<string, (data: Record<string, any>) => Promis
     const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-delivered');
     await sendOrThrow({ to: data.to as string, subject, html });
   },
+  'order-status-updated': async (data) => {
+    const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-status-updated');
+    await sendOrThrow({ to: data.to as string, subject, html });
+  },
   'payment-received': async (data) => {
     if (data.to) {
       const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
@@ -572,7 +580,13 @@ export const emailHandlers: Record<string, (data: Record<string, any>) => Promis
   },
   'payment-failed': async (data) => {
     if (data.to) {
-      const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'order-placed');
+      const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'payment-failed');
+      await sendOrThrow({ to: data.to as string, subject, html });
+    }
+  },
+  'payment-utr-received': async (data) => {
+    if (data.to) {
+      const { subject, html } = await buildOrderHtml(data.subject as string, data.order as Record<string, unknown>, 'payment-utr-received');
       await sendOrThrow({ to: data.to as string, subject, html });
     }
   },
