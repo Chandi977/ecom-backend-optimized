@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import mongoose from 'mongoose';
 import Cart from '../cart/cart.model';
+import Coupon from '../coupon/coupon.model';
 import { commonResponse, returnjson } from '../../utils/response';
 import Product from '../product/product.model';
 import { processImages } from '../../utils/s3';
@@ -11,6 +12,23 @@ import { withLock } from '../../utils/concurrency/lock';
 // Cart mutations read the whole products array, recompute, then overwrite it.
 // Serialize per user so two concurrent requests can't lose each other's update.
 const cartLockKey = (user: string): string[] => [`cart:${user}`];
+
+// Server-side coupon validation before persisting a discount to the cart.
+// Returns an error string, or null when the coupon is valid and usable.
+const validateCouponForCart = async (
+  couponCode: string,
+  totalAmount: number,
+): Promise<string | null> => {
+  if (!couponCode) return null;
+  const coupon = await Coupon.findOne({ couponCode: couponCode.toUpperCase() }).exec();
+  if (!coupon) return 'Invalid coupon code';
+  if (!coupon.isActive) return 'Coupon is not active';
+  const now = new Date();
+  if (coupon.validFrom && now < new Date(coupon.validFrom)) return 'Coupon is not active yet';
+  if (coupon.validTo && now > new Date(coupon.validTo)) return 'Coupon has expired';
+  if (totalAmount < (coupon.minOrderValue || 0)) return `Minimum order value is ${coupon.minOrderValue}`;
+  return null;
+};
 
 // Cart line-items render small thumbnails — serve resized derivatives.
 const IMAGE_SIGN_OPTIONS = { expiresIn: 86400, width: 400 };
@@ -217,8 +235,6 @@ export const alterQuantity = async (req: IAuthRequest, res: Response): Promise<v
       { user },
       {
         products, total_amount, totalPackWeight,
-        discount_amount: 0, appliedCoupon: false, couponType: '', appliedCouponName: '',
-        $unset: { totalDiscountPercentage: '', maxCapDiscount: '', totalDiscountPrice: '', shippingDiscountPrice: '', shippingDiscountPercentage: '', couponUse: '' },
       },
       { new: true }
     ).exec();
@@ -240,6 +256,12 @@ export const updateCart = async (req: IAuthRequest, res: Response): Promise<void
     if (!cart) { res.status(403).json(commonResponse('Cart not found', false)); return; }
     const { products } = await pruneMissingCartProducts(user, cart.products as unknown as CartProductRecord[]);
 
+    if (appliedCoupon && appliedCouponName) {
+      const total = products.reduce((s, p: any) => s + (Number(p.price) || 0) * (Number(p.quantity) || 0), 0);
+      const err = await validateCouponForCart(appliedCouponName, total);
+      if (err) { res.status(400).json(commonResponse(err, false)); return; }
+    }
+
     for (const update of updates) {
         const idx = products.findIndex((p: any) => String(p.product) === String(update.product));
       if (idx !== -1) products[idx].discountPrice = update.discountPrice;
@@ -260,6 +282,15 @@ export const updateShippingCoupon = async (req: IAuthRequest, res: Response): Pr
   try {
     const { appliedCoupon, shippingDiscountPrice, shippingDiscountPercentage, appliedCouponName, couponType, maxCapDiscount, couponUse } = req.body;
     const user = req.user!;
+    if (appliedCoupon && appliedCouponName) {
+      const cart = await Cart.findOne({ user }).lean().exec();
+      const total = (cart?.products || []).reduce(
+        (s: number, p: any) => s + (Number(p.price) || 0) * (Number(p.quantity) || 0),
+        0,
+      );
+      const err = await validateCouponForCart(appliedCouponName, total);
+      if (err) { res.status(400).json(commonResponse(err, false)); return; }
+    }
     const data = await Cart.findOneAndUpdate(
       { user },
       { shippingDiscountPercentage, shippingDiscountPrice, appliedCoupon, appliedCouponName, couponType, maxCapDiscount, couponUse },
@@ -273,6 +304,15 @@ export const updateAllDiscount = async (req: IAuthRequest, res: Response): Promi
   try {
     const { appliedCoupon, totalDiscountPrice, totalDiscountPercentage, appliedCouponName, maxCapDiscount, couponType, couponUse } = req.body;
     const user = req.user!;
+    if (appliedCoupon && appliedCouponName) {
+      const cart = await Cart.findOne({ user }).lean().exec();
+      const total = (cart?.products || []).reduce(
+        (s: number, p: any) => s + (Number(p.price) || 0) * (Number(p.quantity) || 0),
+        0,
+      );
+      const err = await validateCouponForCart(appliedCouponName, total);
+      if (err) { res.status(400).json(commonResponse(err, false)); return; }
+    }
     const data = await Cart.findOneAndUpdate(
       { user },
       { totalDiscountPrice, totalDiscountPercentage, appliedCoupon, appliedCouponName, maxCapDiscount, couponType, couponUse },
@@ -286,9 +326,18 @@ export const updateProductTypeAllCoupon = async (req: IAuthRequest, res: Respons
   try {
     const { appliedCoupon, appliedCouponName, discount_amount, couponType, maxCapDiscount, couponUse, allDiscountPercentage, allDiscountPrice } = req.body;
     const user = req.user!;
+    if (appliedCoupon && appliedCouponName) {
+      const cart = await Cart.findOne({ user }).lean().exec();
+      const total = (cart?.products || []).reduce(
+        (s: number, p: any) => s + (Number(p.price) || 0) * (Number(p.quantity) || 0),
+        0,
+      );
+      const err = await validateCouponForCart(appliedCouponName, total);
+      if (err) { res.status(400).json(commonResponse(err, false)); return; }
+    }
     const data = await Cart.findOneAndUpdate(
       { user },
-      { appliedCoupon, appliedCouponName, discount_amount, maxCapDiscount, couponUse, allDiscountPercentage, allDiscountPrice },
+      { appliedCoupon, appliedCouponName, discount_amount, couponType: couponType || 'all', maxCapDiscount, couponUse, allDiscountPercentage, allDiscountPrice },
       { new: true }
     ).exec();
     res.status(201).json(commonResponse('Cart updated', true, data));
@@ -384,8 +433,6 @@ export const removeFromCart = async (req: IAuthRequest, res: Response): Promise<
     { user },
     {
       products: filtered, total_amount, totalPackWeight,
-      appliedCoupon: false, appliedCouponName: '', couponType: '', discount_amount: 0,
-      $unset: { totalDiscountPercentage: '', maxCapDiscount: '', totalDiscountPrice: '', shippingDiscountPrice: '', shippingDiscountPercentage: '', couponUse: '' },
     },
     { new: true }
   ).exec();
@@ -419,7 +466,7 @@ export const removeCoupon = async (req: IAuthRequest, res: Response): Promise<vo
       products: restored,
       total_amount,
       appliedCoupon: false, appliedCouponName: '', couponType: '', discount_amount: 0,
-      $unset: { totalDiscountPercentage: '', maxCapDiscount: '', totalDiscountPrice: '', shippingDiscountPrice: '', shippingDiscountPercentage: '', couponUse: '' },
+      $unset: { totalDiscountPercentage: '', maxCapDiscount: '', totalDiscountPrice: '', shippingDiscountPrice: '', shippingDiscountPercentage: '', couponUse: '', allDiscountPercentage: '', allDiscountPrice: '' },
     },
     { new: true }
   ).exec();
