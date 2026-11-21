@@ -1,10 +1,12 @@
+import { inlineSocialIconsForPreview } from '../../utils/email-social-icons';
+import { buildPromotionalHtml } from '../../workers/email-worker';
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { commonResponse } from '../../utils/response';
 import { IAuthRequest } from '../../types';
 import { logger } from '../../utils/logger';
 import { dispatchEmail } from '../../queue/email-dispatch';
-import { Subscriber, EmailCampaign } from '../../models';
+import { Subscriber, EmailCampaign, User } from '../../models';
 import { MarketingAudience } from './email-campaign.model';
 import {
   AUDIENCE_KEYS,
@@ -12,6 +14,7 @@ import {
   collectRecipients,
   isValidEmail,
   normalizeEmail,
+  syncMarketingSubscription,
   verifyUnsubscribeToken,
 } from './marketing.service';
 
@@ -26,6 +29,26 @@ const sanitizeAudiences = (input: unknown): MarketingAudience[] => {
   return input.filter((a): a is MarketingAudience => AUDIENCE_KEYS.includes(a as MarketingAudience));
 };
 
+// Turn arbitrary request content into the exact shape stored on a campaign.
+// Shared by "send" and "save draft" so a saved email reloads identically.
+const normalizeCampaignContent = (content?: Record<string, unknown>) => ({
+  mode: content?.mode === 'custom' ? ('custom' as const) : ('branded' as const),
+  html: content?.html ? String(content.html) : '',
+  blocks: Array.isArray(content?.blocks) ? content.blocks.slice(0, 200) : undefined,
+  editorProject: content?.editorProject && typeof content.editorProject === 'object' && !Array.isArray(content.editorProject) ? content.editorProject : undefined,
+  heading: content?.heading ? String(content.heading) : '',
+  body: content?.body ? String(content.body) : '',
+  imageUrl: content?.imageUrl ? String(content.imageUrl) : '',
+  ctaLabel: content?.ctaLabel ? String(content.ctaLabel) : '',
+  ctaUrl: content?.ctaUrl ? String(content.ctaUrl) : '',
+});
+
+// A draft is worth saving if the author has typed anything at all. Subject and
+// content may both be incomplete — this is a work-in-progress save.
+const hasDraftContent = (subject: string, content: ReturnType<typeof normalizeCampaignContent>): boolean =>
+  Boolean(subject || content.heading || content.body || content.imageUrl || content.html);
+
+
 /* --------------------------- Public: newsletter opt-in --------------------------- */
 
 export const subscribeNewsletter = async (req: Request, res: Response): Promise<void> => {
@@ -38,15 +61,8 @@ export const subscribeNewsletter = async (req: Request, res: Response): Promise<
     }
 
     // Re-subscribes anyone who previously opted out; first-time sign-ups are created.
-    await Subscriber.findOneAndUpdate(
-      { email },
-      {
-        $set: { status: 'subscribed', ...(name ? { name } : {}) },
-        $unset: { unsubscribedAt: '' },
-        $setOnInsert: { email, source: 'newsletter' },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    ).exec();
+    // The helper also re-enables the profile toggle for registered customers.
+    await syncMarketingSubscription(email, true, 'newsletter', name);
 
     res.status(200).json(commonResponse("You're on the list! Thanks for subscribing.", true));
   } catch (error) {
@@ -70,15 +86,9 @@ export const unsubscribeNewsletter = async (req: Request, res: Response): Promis
     }
 
     // Upsert so we suppress future sends even for people who only ever existed as
-    // registered users / leads (no prior Subscriber row).
-    await Subscriber.findOneAndUpdate(
-      { email },
-      {
-        $set: { status: 'unsubscribed', unsubscribedAt: new Date() },
-        $setOnInsert: { email, source: 'newsletter' },
-      },
-      { upsert: true, setDefaultsOnInsert: true },
-    ).exec();
+    // registered users / leads (no prior Subscriber row). Registered customers
+    // also get their profile toggle switched off so both views agree.
+    await syncMarketingSubscription(email, false, 'newsletter');
 
     res.status(200).json(commonResponse('You have been unsubscribed from promotional emails.', true));
   } catch (error) {
@@ -114,6 +124,20 @@ export const previewAudience = async (req: IAuthRequest, res: Response): Promise
 
 /* ------------------------------- Admin: campaigns ------------------------------- */
 
+// Preview uses the same renderer as queued and inline delivery.
+export const previewCampaign = async (req: IAuthRequest, res: Response): Promise<void> => {
+  try {
+    const html = buildPromotionalHtml({
+      ...normalizeCampaignContent(req.body.content),
+      subject: String(req.body.subject || ''),
+      previewText: String(req.body.previewText || ''),
+    }, '#unsubscribe-preview');
+    res.status(200).json(commonResponse('Email preview', true, { html: inlineSocialIconsForPreview(html) }));
+  } catch {
+    res.status(400).json(commonResponse('Could not render email content', false));
+  }
+};
+
 // Send a single test email to the admin so they can eyeball the real thing.
 export const sendTestEmail = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
@@ -131,7 +155,7 @@ export const sendTestEmail = async (req: IAuthRequest, res: Response): Promise<v
       recipients: [{ email }],
       subject: String(subject).trim(),
       previewText: previewText ? String(previewText) : '',
-      content: content || {},
+      content: normalizeCampaignContent(content),
     });
     if (!sent) {
       res.status(502).json(commonResponse('Could not send the test email (mail service unavailable)', false));
@@ -169,15 +193,7 @@ export const sendCampaign = async (req: IAuthRequest, res: Response): Promise<vo
       res.status(400).json(commonResponse('Add the email HTML for the custom layout', false));
       return;
     }
-    const normalizedContent = {
-      mode,
-      html: content?.html ? String(content.html) : '',
-      heading: content?.heading ? String(content.heading) : '',
-      body: content?.body ? String(content.body) : '',
-      imageUrl: content?.imageUrl ? String(content.imageUrl) : '',
-      ctaLabel: content?.ctaLabel ? String(content.ctaLabel) : '',
-      ctaUrl: content?.ctaUrl ? String(content.ctaUrl) : '',
-    };
+    const normalizedContent = normalizeCampaignContent(content);
 
     const campaign = await EmailCampaign.create({
       subject: String(subject).trim(),
@@ -226,9 +242,104 @@ export const sendCampaign = async (req: IAuthRequest, res: Response): Promise<vo
 export const listCampaigns = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const data = await EmailCampaign.find().sort({ createdAt: -1 }).limit(limit).lean().exec();
+    const status = String(req.query.status || '').trim();
+
+    // The Sent history tab asks for everything except drafts; the Saved tab
+    // explicitly asks for drafts. An explicit sending/sent/failed value filters
+    // down to that status.
+    const filter: Record<string, unknown> = {};
+    if (status === 'draft' || status === 'sending' || status === 'sent' || status === 'failed') {
+      filter.status = status;
+    } else if (status !== 'all') {
+      filter.status = { $ne: 'draft' };
+    }
+
+    const data = await EmailCampaign.find(filter).sort({ createdAt: -1 }).limit(limit).lean().exec();
     res.status(200).json(commonResponse('Campaigns fetched successfully', true, data));
   } catch (error) {
+    res.status(500).json(commonResponse('Internal Server Error', false));
+  }
+};
+
+/**
+ * Create or update a saved campaign (a draft) so a composed email can be reused.
+ * Pass `id` to update an existing draft, omit it to save a new one. Sending is a
+ * separate step, so incomplete emails are allowed as long as something was typed.
+ */
+export const saveCampaignDraft = async (req: IAuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.body;
+    const subject = String(req.body.subject || '').trim();
+    const previewText = req.body.previewText ? String(req.body.previewText) : '';
+    const content = normalizeCampaignContent(req.body.content);
+    const audiences = sanitizeAudiences(req.body.audiences);
+
+    if (!hasDraftContent(subject, content)) {
+      res.status(400).json(commonResponse('Add a subject or some content before saving', false));
+      return;
+    }
+
+    const payload = { subject, previewText, content, audiences };
+
+    if (id) {
+      if (!mongoose.isValidObjectId(id)) {
+        res.status(400).json(commonResponse('Invalid draft id', false));
+        return;
+      }
+      // Only drafts are editable. A sent/sending campaign is a historical record.
+      const updated = await EmailCampaign.findOneAndUpdate(
+        { _id: id, status: 'draft' },
+        { $set: payload },
+        { new: true },
+      ).lean().exec();
+      if (!updated) {
+        res.status(404).json(commonResponse('Saved email not found', false));
+        return;
+      }
+      res.status(200).json(commonResponse('Saved email updated', true, updated));
+      return;
+    }
+
+    const created = await EmailCampaign.create({
+      ...payload,
+      status: 'draft',
+      recipientCount: 0,
+      createdBy: req.user && mongoose.isValidObjectId(req.user) ? req.user : undefined,
+      createdByName: req.userName,
+    });
+    res.status(201).json(commonResponse('Email saved for later', true, created.toObject()));
+  } catch (error) {
+    logger.error('Save campaign draft failed', { error: error instanceof Error ? error.message : 'Unknown' });
+    res.status(500).json(commonResponse('Internal Server Error', false));
+  }
+};
+
+/**
+ * Delete a saved email (or a finished campaign from history). Anything currently
+ * sending is protected so a live fan-out is not orphaned.
+ */
+export const deleteCampaign = async (req: IAuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      res.status(400).json(commonResponse('Invalid campaign id', false));
+      return;
+    }
+
+    const campaign = await EmailCampaign.findById(id).select('status').lean().exec();
+    if (!campaign) {
+      res.status(404).json(commonResponse('Campaign not found', false));
+      return;
+    }
+    if (campaign.status === 'sending') {
+      res.status(400).json(commonResponse('This campaign is still sending and cannot be deleted', false));
+      return;
+    }
+
+    await EmailCampaign.findByIdAndDelete(id).exec();
+    res.status(200).json(commonResponse('Campaign deleted successfully', true));
+  } catch (error) {
+    logger.error('Delete campaign failed', { error: error instanceof Error ? error.message : 'Unknown' });
     res.status(500).json(commonResponse('Internal Server Error', false));
   }
 };
@@ -271,15 +382,8 @@ export const addSubscriber = async (req: IAuthRequest, res: Response): Promise<v
       res.status(400).json(commonResponse('Please enter a valid email address', false));
       return;
     }
-    const data = await Subscriber.findOneAndUpdate(
-      { email },
-      {
-        $set: { status: 'subscribed', ...(name ? { name } : {}) },
-        $unset: { unsubscribedAt: '' },
-        $setOnInsert: { email, source: 'manual' },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    ).exec();
+    await syncMarketingSubscription(email, true, 'manual', name);
+    const data = await Subscriber.findOne({ email }).lean().exec();
     res.status(200).json(commonResponse('Subscriber saved successfully', true, data));
   } catch (error) {
     logger.error('Add subscriber failed', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -334,6 +438,15 @@ export const importSubscribers = async (req: IAuthRequest, res: Response): Promi
       updated = (result.modifiedCount || 0) + (result.matchedCount || 0);
     }
 
+    // Imported addresses are an explicit opt-in — clear any profile-level opt-out
+    // for registered customers in the same batch so they are not suppressed.
+    if (map.size > 0) {
+      await User.updateMany(
+        { role: 'user', email_address: { $in: [...map.keys()] } },
+        { $set: { 'privacyPreferences.emailNotifications': true } },
+      ).exec();
+    }
+
     res.status(200).json(commonResponse(
       `Imported ${map.size} address(es): ${inserted} new, ${updated} updated${invalid ? `, ${invalid} skipped (invalid)` : ''}.`,
       true,
@@ -353,12 +466,15 @@ export const updateSubscriberStatus = async (req: IAuthRequest, res: Response): 
     if (status !== 'subscribed' && status !== 'unsubscribed') {
       res.status(400).json(commonResponse('status must be subscribed or unsubscribed', false)); return;
     }
-    const data = await Subscriber.findByIdAndUpdate(
-      id,
-      { $set: { status, unsubscribedAt: status === 'unsubscribed' ? new Date() : undefined } },
-      { new: true },
-    ).exec();
-    if (!data) { res.status(404).json(commonResponse('Subscriber not found', false)); return; }
+
+    const existing = await Subscriber.findById(id).select('email').lean().exec();
+    if (!existing) { res.status(404).json(commonResponse('Subscriber not found', false)); return; }
+
+    // Route through the shared helper so a registered customer's profile toggle
+    // is updated alongside the suppression list (and unsubscribedAt is cleared
+    // when they opt back in).
+    await syncMarketingSubscription(existing.email, status === 'subscribed', 'manual');
+    const data = await Subscriber.findById(id).lean().exec();
     res.status(200).json(commonResponse('Subscriber updated successfully', true, data));
   } catch (error) {
     res.status(500).json(commonResponse('Internal Server Error', false));

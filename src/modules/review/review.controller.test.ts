@@ -15,27 +15,28 @@ const makeQuery = (result: unknown) => {
 jest.mock('./review.model', () => ({
   __esModule: true,
   REVIEW_STATUSES: ['pending', 'approved', 'rejected'],
-  PAID_ORDER_STATUSES: ['Payment Processed'],
+  PAID_ORDER_STATUSES: ['Payment Processed', 'Paid', 'Payment Verified'],
   default: {
+    find: jest.fn(),
     findOne: jest.fn(),
     findById: jest.fn(),
     create: jest.fn(),
     aggregate: jest.fn(),
   },
 }));
-jest.mock('../order/order.model', () => ({ __esModule: true, default: { findOne: jest.fn() } }));
-jest.mock('../product/product.model', () => ({ __esModule: true, default: { updateOne: jest.fn() } }));
+jest.mock('../order/order.model', () => ({ __esModule: true, default: { find: jest.fn(), findOne: jest.fn() } }));
+jest.mock('../product/product.model', () => ({ __esModule: true, default: { find: jest.fn(), updateOne: jest.fn() } }));
 jest.mock('../auth/auth.model', () => ({ __esModule: true, default: { findById: jest.fn() } }));
 
-import { createReview, recomputeProductRating } from './review.controller';
+import { createReview, getReviewableProducts, recomputeProductRating } from './review.controller';
 import Review from './review.model';
 import Order from '../order/order.model';
 import Product from '../product/product.model';
 import User from '../auth/auth.model';
 
 const mockReview = Review as unknown as Record<string, jest.Mock>;
-const mockOrder = Order as unknown as { findOne: jest.Mock };
-const mockProduct = Product as unknown as { updateOne: jest.Mock };
+const mockOrder = Order as unknown as { find: jest.Mock; findOne: jest.Mock };
+const mockProduct = Product as unknown as { find: jest.Mock; updateOne: jest.Mock };
 const mockUser = User as unknown as { findById: jest.Mock };
 
 const PRODUCT_ID = '507f1f77bcf86cd799439011';
@@ -49,8 +50,9 @@ const makeRes = () => {
 };
 
 beforeEach(() => {
-  [mockReview.findOne, mockReview.findById, mockReview.create, mockReview.aggregate,
-    mockOrder.findOne, mockProduct.updateOne, mockUser.findById].forEach((m) => m.mockReset());
+  [mockReview.find, mockReview.findOne, mockReview.findById, mockReview.create, mockReview.aggregate,
+    mockOrder.find, mockOrder.findOne, mockProduct.find, mockProduct.updateOne,
+    mockUser.findById].forEach((m) => m.mockReset());
 });
 
 describe('createReview — verified-purchase gate', () => {
@@ -89,6 +91,12 @@ describe('createReview — verified-purchase gate', () => {
       { user: USER_ID, body: { productId: PRODUCT_ID, rating: 5, comment: 'Great', title: 'Loved it' } } as any,
       res as any,
     );
+    expect(mockOrder.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      user: expect.anything(),
+      'items.product': expect.anything(),
+      paymentStatus: { $in: ['Payment Processed', 'Paid', 'Payment Verified'] },
+      status: { $ne: 'Cancelled' },
+    }));
     expect(mockReview.create).toHaveBeenCalledWith(expect.objectContaining({
       product: PRODUCT_ID,
       user: USER_ID,
@@ -98,6 +106,47 @@ describe('createReview — verified-purchase gate', () => {
       verifiedPurchase: true,
     }));
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+});
+
+describe('getReviewableProducts — review prompt source', () => {
+  const order = {
+    orderId: 'PI-10001',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    items: [{ product: PRODUCT_ID }],
+  };
+
+  it('returns purchased products that have not been reviewed yet', async () => {
+    mockOrder.find.mockReturnValue(makeQuery([order]));
+    mockReview.find.mockReturnValue(makeQuery([]));
+    mockProduct.find.mockReturnValue(makeQuery([{ _id: PRODUCT_ID, name: 'Box', slug: 'box', images: [] }]));
+    const res = makeRes();
+    await getReviewableProducts({ user: USER_ID } as any, res as any);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      data: [expect.objectContaining({
+        orderId: 'PI-10001',
+        product: expect.objectContaining({ _id: PRODUCT_ID, name: 'Box', slug: 'box' }),
+      })],
+    }));
+  });
+
+  it('omits products the customer already reviewed', async () => {
+    mockOrder.find.mockReturnValue(makeQuery([order]));
+    mockReview.find.mockReturnValue(makeQuery([{ product: PRODUCT_ID }]));
+    mockProduct.find.mockReturnValue(makeQuery([{ _id: PRODUCT_ID, name: 'Box', slug: 'box', images: [] }]));
+    const res = makeRes();
+    await getReviewableProducts({ user: USER_ID } as any, res as any);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, data: [] }));
+  });
+
+  it('rejects an unauthenticated caller (401)', async () => {
+    const res = makeRes();
+    await getReviewableProducts({} as any, res as any);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockOrder.find).not.toHaveBeenCalled();
   });
 });
 

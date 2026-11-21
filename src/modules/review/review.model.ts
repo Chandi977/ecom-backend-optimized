@@ -4,9 +4,12 @@ export const REVIEW_STATUSES = ['pending', 'approved', 'rejected'] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 
 // Order paymentStatus values that qualify a purchase as "verified". Only orders
-// whose payment has actually cleared let a customer review the product. Kept as a
-// list so additional terminal-paid states can be added without touching callers.
-export const PAID_ORDER_STATUSES = ['Payment Processed'] as const;
+// whose payment has actually cleared let a customer review the product. The order
+// lifecycle moves Not Paid -> Payment Processed -> Paid -> Payment Verified, so all
+// cleared states are included — otherwise a customer would lose review access the
+// moment an admin verified their payment. Kept as a list so additional terminal-paid
+// states can be added without touching callers.
+export const PAID_ORDER_STATUSES = ['Payment Processed', 'Paid', 'Payment Verified'] as const;
 
 export interface IReviewReply {
   message: string;

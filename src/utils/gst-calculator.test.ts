@@ -1,6 +1,7 @@
 // Smoke test for the order-time GST path. Locks in the per-product GST
-// priority introduced 2026-06-25: product.gst wins over sub_category / category,
-// falling back to those (then 18%) only when the product has no own rate.
+// priority: product.gst wins over sub_category / category. When none of those
+// declares a rate, calculateOrderGST throws MissingGstError so invoices are
+// never created with an assumed rate. Shipping is always taxed at 18%.
 //
 // The Product model is mocked so the test exercises the real calculateOrderGST
 // (and its internal resolveProductGstRate) without a database.
@@ -21,7 +22,7 @@ jest.mock('../modules/product/product.model', () => ({
   default: { find: jest.fn() },
 }));
 
-import { calculateOrderGST } from './gst-calculator';
+import { calculateOrderGST, MissingGstError } from './gst-calculator';
 import Product from '../modules/product/product.model';
 
 const mockProduct = Product as unknown as { find: jest.Mock };
@@ -70,14 +71,12 @@ describe('calculateOrderGST — per-product GST priority (product wins)', () => 
     expect(result.itemsWithGst[0].gst).toBe(12);
   });
 
-  it('falls back to the 18% default when nothing has a rate', async () => {
+  it('throws MissingGstError when no rate is set anywhere', async () => {
     mockProduct.find.mockReturnValue(
       makeQuery([{ _id: 'p4', category: null, sub_category: null }]),
     );
 
-    const result = await calculateOrderGST([item('p4', 100, 1)], 0);
-
-    expect(result.itemsWithGst[0].gst).toBe(18);
+    await expect(calculateOrderGST([item('p4', 100, 1)], 0)).rejects.toThrow(MissingGstError);
   });
 
   it('always taxes shipping at the 18% default and rolls it into the totals', async () => {
@@ -97,7 +96,7 @@ describe('calculateOrderGST — per-product GST priority (product wins)', () => 
 describe('calculateOrderGST — HSN code resolution (product -> sub_category -> category)', () => {
   it('uses the product hsn_code when present', async () => {
     mockProduct.find.mockReturnValue(
-      makeQuery([{ _id: 'p1', hsn_code: '4821', category: { hsn_code: '9999' }, sub_category: { hsn_code: '8888' } }]),
+      makeQuery([{ _id: 'p1', gst: 5, hsn_code: '4821', category: { hsn_code: '9999' }, sub_category: { hsn_code: '8888' } }]),
     );
 
     const result = await calculateOrderGST([item('p1', 100, 1)], 0);
@@ -107,13 +106,13 @@ describe('calculateOrderGST — HSN code resolution (product -> sub_category -> 
 
   it('falls back to sub_category hsn_code, then category, when the product has none', async () => {
     mockProduct.find.mockReturnValue(
-      makeQuery([{ _id: 'p2', category: { hsn_code: '9999' }, sub_category: { hsn_code: '8888' } }]),
+      makeQuery([{ _id: 'p2', gst: 5, category: { hsn_code: '9999' }, sub_category: { hsn_code: '8888' } }]),
     );
     const r1 = await calculateOrderGST([item('p2', 100, 1)], 0);
     expect(r1.itemsWithGst[0].hsn_code).toBe('8888'); // sub_category wins over category
 
     mockProduct.find.mockReturnValue(
-      makeQuery([{ _id: 'p3', category: { hsn_code: '9999' }, sub_category: null }]),
+      makeQuery([{ _id: 'p3', gst: 5, category: { hsn_code: '9999' }, sub_category: null }]),
     );
     const r2 = await calculateOrderGST([item('p3', 100, 1)], 0);
     expect(r2.itemsWithGst[0].hsn_code).toBe('9999'); // falls through to category
@@ -121,7 +120,7 @@ describe('calculateOrderGST — HSN code resolution (product -> sub_category -> 
 
   it('omits hsn_code when none is set on product, sub_category or category', async () => {
     mockProduct.find.mockReturnValue(
-      makeQuery([{ _id: 'p4', category: null, sub_category: null }]),
+      makeQuery([{ _id: 'p4', gst: 5, category: { gst: 12 }, sub_category: { gst: 28 } }]),
     );
 
     const result = await calculateOrderGST([item('p4', 100, 1)], 0);

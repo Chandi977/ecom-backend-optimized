@@ -979,12 +979,39 @@ export const importLeadsSchema = z.object({
 });
 
 // ─── Custom Packaging ───────────────────────────────────────────────
-export const createCustomPackageSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  email: emailStr,
-  phone: z.string().min(1, 'Phone is required'),
-  description: z.string().min(1, 'Description is required'),
-});
+// Accepts both payload shapes:
+//  - legacy: { name, email, phone, description }
+//  - storefront form: { company_name, product_category, moq, rich_text,
+//    contact_person_name, contact_person_email, contact_person_mobile_number }
+// The controller normalizes either one into the full document.
+export const createCustomPackageSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required').optional(),
+    email: emailStr.optional(),
+    phone: z.string().min(1, 'Phone is required').optional(),
+    description: z.string().min(1, 'Description is required').optional(),
+    company_name: z.string().min(1).optional(),
+    product_category: z.string().min(1).optional(),
+    moq: z.string().min(1).optional(),
+    rich_text: z.string().min(1).optional(),
+    contact_person_name: z.string().min(1).optional(),
+    contact_person_email: emailStr.optional(),
+    contact_person_mobile_number: z.string().min(1).optional(),
+  })
+  .refine(
+    (data) =>
+      Boolean(
+        (data.name && data.email && data.phone && data.description) ||
+          (data.company_name &&
+            data.product_category &&
+            data.moq &&
+            data.rich_text &&
+            data.contact_person_name &&
+            data.contact_person_email &&
+            data.contact_person_mobile_number),
+      ),
+    { message: 'Complete either the legacy or the custom-packaging form fields' },
+  );
 
 // ─── Notify ─────────────────────────────────────────────────────────
 export const createNotifySchema = z.object({

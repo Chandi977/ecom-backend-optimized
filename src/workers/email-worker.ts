@@ -1,3 +1,4 @@
+import { buildEmailSocialFooter } from '../utils/email-social-footer';
 import { Worker, ConnectionOptions } from 'bullmq';
 import mongoose from 'mongoose';
 import { config } from '../config';
@@ -12,7 +13,7 @@ import { bootWorkerProcess } from './boot';
 
 // Base HTML layout wrapper for email templates. `preheader` is the hidden inbox
 // preview snippet (shown in the list view before the email is opened).
-const buildEmailLayout = (title: string, contentHtml: string, preheader = ''): string => `<!DOCTYPE html>
+const buildEmailLayout = (title: string, contentHtml: string, preheader = '', promotional = false): string => `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -34,7 +35,7 @@ const buildEmailLayout = (title: string, contentHtml: string, preheader = ''): s
     .brand-text span { color:#F02020; }
     .hero-line { height:5px; background:linear-gradient(90deg,#102050 0%,#F02020 42%,#ff7a1a 100%); line-height:5px; font-size:5px; }
     .trust-strip { width:100%; background:#fff7f7; border-bottom:1px solid #ffe0e0; }
-    .trust-strip td { padding:12px 10px; font-size:12px; color:#5b6475; text-align:center; font-weight:600; }
+    .trust-strip td { width:33.333%; padding:12px 10px; font-size:12px; color:#5b6475; text-align:center; font-weight:600; }
     .trust-dot { color:#F02020; font-weight:800; padding-right:5px; }
     .content { padding:36px 34px 30px; }
     .footer { background:#0f1f4d; padding:28px 32px; text-align:center; font-size:13px; color:#c8d2e6; line-height:1.6; }
@@ -72,7 +73,12 @@ const buildEmailLayout = (title: string, contentHtml: string, preheader = ''): s
     .order-summary .summary-label { font-weight:700; }
     .order-summary .summary-value { text-align:right; font-weight:800; color:#102050; }
     .order-summary .summary-total td { border-bottom:none; border-top:2px solid #102050; font-size:16px; background:#f8fafc; color:#102050; }
-    @media only screen and (max-width:600px){ .email-bg{padding:0;background:#fff}.container{border-radius:0;border:none;box-shadow:none}.topbar{padding:9px 14px;font-size:11px}.header{padding:22px 18px 18px}.logo{max-height:42px!important}.brand-text{font-size:20px!important;line-height:24px!important}.trust-strip td{display:block;width:100%!important;box-sizing:border-box;padding:8px 12px!important;border-bottom:1px solid #ffe7e7}.content{padding:28px 18px 24px}.footer{padding:24px 18px}.footer-links a{display:inline-block;margin:5px 7px}h1{font-size:22px!important;line-height:1.3!important}h2{font-size:18px!important}h3{font-size:16px!important}p{font-size:14px!important;line-height:1.62!important}.card,.highlight-card,.otp-code{padding:18px!important;border-radius:14px!important}.btn{display:block!important;text-align:center!important;padding:14px 18px!important}.order-table{min-width:0!important}.order-table th,.order-table td{padding:10px 8px!important;font-size:12px!important}.order-table th{font-size:10px!important;white-space:nowrap}.order-table tr.total-row td{font-size:14px!important}.order-item-card{padding:14px!important;border-radius:12px!important}.order-item-stat td{display:table-cell!important;width:50%!important}.order-summary td{padding:11px 12px!important;font-size:13px!important}.order-summary .summary-total td{font-size:15px!important}.delivery-table,.delivery-table tbody,.delivery-table tr,.delivery-table td{display:block!important;width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.otp-code{font-size:24px!important;letter-spacing:4px!important;padding:12px 16px!important} }
+    @media only screen and (max-width:600px){ .email-bg{padding:0;background:#fff}.container{border-radius:0;border:none;box-shadow:none}.topbar{padding:9px 14px;font-size:11px}.header{padding:22px 18px 18px}.logo{max-height:42px!important}.brand-text{font-size:20px!important;line-height:24px!important}.trust-strip td{display:table-cell!important;width:33.333%!important;box-sizing:border-box;padding:8px 3px!important;font-size:9px!important;white-space:nowrap;border-bottom:0}.trust-dot{padding-right:2px}.content{padding:28px 18px 24px}.footer{padding:24px 18px}.footer-links a{display:inline-block;margin:5px 7px}h1{font-size:22px!important;line-height:1.3!important}h2{font-size:18px!important}h3{font-size:16px!important}p{font-size:14px!important;line-height:1.62!important}.card,.highlight-card,.otp-code{padding:18px!important;border-radius:14px!important}.btn{display:block!important;text-align:center!important;padding:14px 18px!important}.order-table{min-width:0!important}.order-table th,.order-table td{padding:10px 8px!important;font-size:12px!important}.order-table th{font-size:10px!important;white-space:nowrap}.order-table tr.total-row td{font-size:14px!important}.order-item-card{padding:14px!important;border-radius:12px!important}.order-item-stat td{display:table-cell!important;width:50%!important}.order-summary td{padding:11px 12px!important;font-size:13px!important}.order-summary .summary-total td{font-size:15px!important}.delivery-table,.delivery-table tbody,.delivery-table tr,.delivery-table td{display:block!important;width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important}.otp-code{font-size:24px!important;letter-spacing:4px!important;padding:12px 16px!important} }
+    /* Promotional content owns its spacing; avoid transactional defaults. */
+    .content.content-promo { padding:12px 16px; font-family:Arial,Helvetica,sans-serif; }
+    .content-promo p { margin:0; }
+    .content-promo h1,.content-promo h2,.content-promo h3 { margin:0; }
+    @media only screen and (max-width:600px){.content.content-promo{padding:10px 12px;}}
   </style>
 </head>
 <body>
@@ -83,8 +89,8 @@ const buildEmailLayout = (title: string, contentHtml: string, preheader = ''): s
       <tr><td class="header"><a href="https://store.prempackaging.com" target="_blank" style="text-decoration:none;display:inline-block;"><img src="https://store.prempackaging.com/pp_logo_1.png" alt="Prem Packaging" class="logo" style="max-height:48px;border:0;outline:none;display:block;margin:0 auto;"><div class="brand-text">PREM <span>PACKAGING</span></div></a></td></tr>
       <tr><td class="hero-line">&nbsp;</td></tr>
       <tr><td><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="trust-strip"><tr><td><span class="trust-dot">●</span>Secure checkout</td><td><span class="trust-dot">●</span>GST billing</td><td><span class="trust-dot">●</span>Bulk order support</td></tr></table></td></tr>
-      <tr><td class="content">${contentHtml}</td></tr>
-      <tr><td class="footer"><div class="footer-links"><a href="https://store.prempackaging.com">Shop Online</a><span style="color:#60739e;"> &bull; </span><a href="https://store.prempackaging.com/my-orders">Track Orders</a><span style="color:#60739e;"> &bull; </span><a href="https://store.prempackaging.com/contact-form">Contact Us</a></div><p style="font-size:12px;color:#c8d2e6;margin:0 0 10px;">&copy; ${new Date().getFullYear()} Prem Industries India Limited. All rights reserved.<br>C-209, Bulandshahar Road, Industrial Area, Ghaziabad, Uttar Pradesh - 201009</p><p style="font-size:11px;color:#8493b6;margin:0;">You are receiving this email because you registered or made a purchase on store.prempackaging.com.</p></td></tr>
+      <tr><td class="content${promotional ? ' content-promo' : ''}">${contentHtml}</td></tr>
+      <tr><td class="footer"><div class="footer-links"><a href="https://store.prempackaging.com">Shop Online</a><span style="color:#60739e;"> &bull; </span><a href="https://store.prempackaging.com/my-orders">Track Orders</a><span style="color:#60739e;"> &bull; </span><a href="https://store.prempackaging.com/contact-form">Contact Us</a></div>${buildEmailSocialFooter()}<p style="font-size:12px;color:#c8d2e6;margin:0 0 10px;">&copy; ${new Date().getFullYear()} Prem Industries India Limited. All rights reserved.<br>C-209, Bulandshahar Road, Industrial Area, Ghaziabad, Uttar Pradesh - 201009</p><p style="font-size:11px;color:#8493b6;margin:0;">You are receiving this email because you registered or made a purchase on store.prempackaging.com.</p></td></tr>
     </table>
   </td></tr></table>
 </body>
@@ -438,8 +444,11 @@ export interface IPromotionalContent {
  * every promotional send stays compliant.
  */
 const applyCustomUnsubscribe = (html: string, unsubscribeUrl: string): string => {
-  let out = String(html || '').replace(/\{\{\s*unsubscribe(?:_url)?\s*\}\}/gi, escapeAttr(unsubscribeUrl));
-  if (!/unsubscribe/i.test(out)) {
+  const token = /\{\{\s*unsubscribe(?:_url)?\s*\}\}/gi;
+  const hasUnsubscribeToken = token.test(String(html || ''));
+  token.lastIndex = 0;
+  let out = String(html || '').replace(token, escapeAttr(unsubscribeUrl));
+  if (!hasUnsubscribeToken) {
     const footer = `<div style="text-align:center;padding:18px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#94a3b8;">`
       + `<a href="${escapeAttr(unsubscribeUrl)}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe</a> from these emails.</div>`;
     out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `${footer}</body>`) : out + footer;
@@ -488,14 +497,14 @@ export const buildPromotionalHtml = (content: IPromotionalContent, unsubscribeUr
     ? `<div style="text-align:center;margin-top:28px;"><a href="${escapeAttr(content.ctaUrl)}" class="btn" style="color:#ffffff !important;">${escapeHtml(content.ctaLabel)}</a></div>`
     : '';
   const unsubscribeHtml = `
-    <div style="text-align:center;margin-top:34px;border-top:1px solid #e2e8f0;padding-top:18px;">
+    <div style="text-align:center;margin-top:12px;border-top:1px solid #e2e8f0;padding-top:10px;">
       <p style="font-size:12px;color:#94a3b8;margin:0;line-height:1.6;">
         You are receiving this email because you subscribed or shopped with Prem Packaging.<br>
         <a href="${escapeAttr(unsubscribeUrl)}" style="color:#94a3b8;text-decoration:underline;">Unsubscribe</a> from promotional emails.
       </p>
     </div>`;
   const inner = `${heroHtml}${headingHtml}${paragraphs}${ctaHtml}${unsubscribeHtml}`;
-  return buildEmailLayout(content.subject || 'Prem Packaging', inner, content.previewText || '');
+  return buildEmailLayout(content.subject || 'Prem Packaging', inner, content.previewText || '', true);
 };
 
 // Simple branded email for admin-composed broadcasts (title + free-text body).

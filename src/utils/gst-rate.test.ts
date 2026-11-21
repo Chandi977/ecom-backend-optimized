@@ -1,10 +1,10 @@
-import { normalizeGstRate, parseOptionalGstRate, getDefaultGstRate } from './gst-rate';
+import { normalizeGstRate, parseOptionalGstRate } from './gst-rate';
 
 describe('normalizeGstRate', () => {
-  it('returns the default rate (18) for empty values', () => {
-    expect(normalizeGstRate(undefined)).toBe(18);
-    expect(normalizeGstRate(null)).toBe(18);
-    expect(normalizeGstRate('')).toBe(18);
+  it('returns undefined for empty values', () => {
+    expect(normalizeGstRate(undefined)).toBeUndefined();
+    expect(normalizeGstRate(null)).toBeUndefined();
+    expect(normalizeGstRate('')).toBeUndefined();
   });
 
   it('passes through whole-number percentages', () => {
@@ -20,9 +20,9 @@ describe('normalizeGstRate', () => {
   });
 
   it('falls back for invalid or negative values', () => {
-    expect(normalizeGstRate('abc')).toBe(18);
-    expect(normalizeGstRate(-5)).toBe(18);
-    expect(normalizeGstRate(Number.NaN)).toBe(18);
+    expect(normalizeGstRate('abc')).toBeUndefined();
+    expect(normalizeGstRate(-5)).toBeUndefined();
+    expect(normalizeGstRate(Number.NaN)).toBeUndefined();
   });
 
   it('honours a custom numeric fallback for empty or invalid values', () => {
@@ -44,8 +44,3 @@ describe('parseOptionalGstRate', () => {
   });
 });
 
-describe('getDefaultGstRate', () => {
-  it('exposes the default rate', () => {
-    expect(getDefaultGstRate()).toBe(18);
-  });
-});

@@ -5,8 +5,11 @@ import {
   getAudienceCounts,
   previewAudience,
   sendTestEmail,
+  previewCampaign,
   sendCampaign,
+  saveCampaignDraft,
   listCampaigns,
+  deleteCampaign,
   listSubscribers,
   addSubscriber,
   importSubscribers,
@@ -26,9 +29,14 @@ router.post('/newsletter/unsubscribe', unsubscribeNewsletter);
 // ── Admin: audience + campaigns (admin-only via marketing:* perms) ──
 router.get('/marketing/audience', adminMiddleware, authorize('marketing:read'), getAudienceCounts);
 router.post('/marketing/audience/preview', adminMiddleware, authorize('marketing:read'), previewAudience);
+router.post('/marketing/campaigns/preview', adminMiddleware, authorize('marketing:read'), previewCampaign);
 router.post('/marketing/campaigns/test', adminMiddleware, authorize('marketing:write'), sendTestEmail);
 router.post('/marketing/campaigns/send', adminMiddleware, authorize('marketing:write'), sendCampaign);
+// Save (create or update) a draft so the composed email can be reused later.
+// Registered before the :id route so "save" is never treated as an id.
+router.post('/marketing/campaigns/save', adminMiddleware, authorize('marketing:write'), saveCampaignDraft);
 router.get('/marketing/campaigns', adminMiddleware, authorize('marketing:read'), listCampaigns);
+router.delete('/marketing/campaigns/:id', adminMiddleware, authorize('marketing:write'), deleteCampaign);
 
 // ── Admin: subscribers ──
 // "import" registered before any ":id" routes so it's never treated as an id.

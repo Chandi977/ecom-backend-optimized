@@ -13,14 +13,16 @@ const { ObjectId } = mongoose.Types;
 const isValidId = (value: unknown): value is string =>
   typeof value === 'string' && ObjectId.isValid(value);
 
-// A qualifying purchase = a paid order owned by this user that contains the
-// product. Returns the order id (for provenance) or null. Used both to gate the
-// write endpoint and to compute the eligibility badge shown to the client.
+// A qualifying purchase = a paid, non-cancelled order owned by this user that
+// contains the product. Returns the order id (for provenance) or null. Used both
+// to gate the write endpoint and to compute the eligibility badge shown to the
+// client.
 const findQualifyingOrder = async (userId: string, productId: string): Promise<string | null> => {
   const order = await Order.findOne({
     user: new ObjectId(userId),
     'items.product': new ObjectId(productId),
     paymentStatus: { $in: PAID_ORDER_STATUSES as unknown as string[] },
+    status: { $ne: 'Cancelled' },
   }).select('_id').lean().exec();
   return order ? String(order._id) : null;
 };
@@ -205,6 +207,83 @@ export const getMyReview = async (req: IAuthRequest, res: Response): Promise<voi
     res.status(200).json(commonResponse(review ? 'Review fetched' : 'No review yet', true, review ? publicReview(review) : null));
   } catch (err) {
     logger.error('getMyReview failed', { error: err instanceof Error ? err.message : 'Unknown' });
+    res.status(500).json(commonResponse('Internal Server Error', false));
+  }
+};
+
+// GET /review/reviewable — products from the caller's paid orders that they have
+// not reviewed yet. Powers the "rate your recent purchases" prompt on the account
+// page. Only paid, non-cancelled orders qualify, and each product is listed once
+// (against the most recent qualifying order).
+export const getReviewableProducts = async (req: IAuthRequest, res: Response): Promise<void> => {
+  if (!req.user) { res.status(401).json(commonResponse('Unauthorized', false)); return; }
+  try {
+    const orders = await Order.find({
+      user: new ObjectId(req.user),
+      paymentStatus: { $in: PAID_ORDER_STATUSES as unknown as string[] },
+      status: { $ne: 'Cancelled' },
+    })
+      .sort({ createdAt: -1 })
+      .select('orderId items.product createdAt')
+      .lean()
+      .exec();
+
+    // Orders are newest-first, so the first time a product appears is its latest
+    // qualifying purchase.
+    const purchaseByProduct = new Map<string, { orderId: string; orderDate: Date }>();
+    orders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const productId = String(item.product || '');
+        if (isValidId(productId) && !purchaseByProduct.has(productId)) {
+          purchaseByProduct.set(productId, {
+            orderId: order.orderId,
+            orderDate: order.createdAt,
+          });
+        }
+      });
+    });
+
+    if (purchaseByProduct.size === 0) {
+      res.status(200).json(commonResponse('No purchased products awaiting review', true, []));
+      return;
+    }
+
+    const productIds = Array.from(purchaseByProduct.keys()).map((id) => new ObjectId(id));
+    const [reviewed, products] = await Promise.all([
+      Review.find({ user: new ObjectId(req.user), product: { $in: productIds } })
+        .select('product')
+        .lean()
+        .exec(),
+      Product.find({ _id: { $in: productIds } })
+        .select('name slug images ratingAverage ratingCount')
+        .lean()
+        .exec(),
+    ]);
+
+    const reviewedIds = new Set(reviewed.map((review) => String(review.product)));
+    const reviewable = products
+      .filter((product) => !reviewedIds.has(String(product._id)))
+      .map((product) => {
+        const purchase = purchaseByProduct.get(String(product._id));
+        return {
+          product: {
+            _id: product._id,
+            name: product.name,
+            slug: product.slug || '',
+            images: product.images || [],
+            ratingAverage: product.ratingAverage || 0,
+            ratingCount: product.ratingCount || 0,
+          },
+          orderId: purchase?.orderId || '',
+          orderDate: purchase?.orderDate || null,
+        };
+      })
+      // Most recent purchase first.
+      .sort((a, b) => (b.orderDate?.getTime() || 0) - (a.orderDate?.getTime() || 0));
+
+    res.status(200).json(commonResponse('Reviewable products fetched', true, reviewable));
+  } catch (err) {
+    logger.error('getReviewableProducts failed', { error: err instanceof Error ? err.message : 'Unknown' });
     res.status(500).json(commonResponse('Internal Server Error', false));
   }
 };

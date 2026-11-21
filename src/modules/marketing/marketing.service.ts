@@ -46,10 +46,64 @@ export const buildUnsubscribeUrl = (email: string): string =>
 
 /* ------------------------------ Recipient collection ------------------------------ */
 
-/** The set of emails that have opted out — excluded from every send. */
-const getSuppressedEmails = async (): Promise<Set<string>> => {
-  const rows = await Subscriber.find({ status: 'unsubscribed' }).select('email').lean().exec();
-  return new Set(rows.map((r) => normalizeEmail(r.email)));
+/**
+ * The set of emails that have opted out — excluded from every send. Two sources
+ * are honoured so opt-out works however the customer expressed it:
+ *   1. The Subscriber suppression list (email unsubscribe link, footer, import).
+ *   2. A registered customer switching off email notifications in profile
+ *      settings (privacyPreferences.emailNotifications === false).
+ */
+export const getSuppressedEmails = async (): Promise<Set<string>> => {
+  const [subscribers, optedOutUsers] = await Promise.all([
+    Subscriber.find({ status: 'unsubscribed' }).select('email').lean().exec(),
+    User.find({ role: 'user', 'privacyPreferences.emailNotifications': false })
+      .select('email_address')
+      .lean()
+      .exec(),
+  ]);
+
+  const suppressed = new Set<string>();
+  for (const row of subscribers) suppressed.add(normalizeEmail(row.email));
+  for (const user of optedOutUsers) {
+    if (isValidEmail(user.email_address)) suppressed.add(normalizeEmail(user.email_address));
+  }
+  return suppressed;
+};
+
+/**
+ * Keep the two opt-out stores in step. Setting a preference from the storefront
+ * (footer subscribe, email unsubscribe link, profile toggle) writes both the
+ * Subscriber row and, when the address belongs to a registered customer, their
+ * profile preference — so the UI and the send suppression list never disagree.
+ */
+export const syncMarketingSubscription = async (
+  email: string,
+  subscribed: boolean,
+  source: 'newsletter' | 'import' | 'checkout' | 'manual' = 'newsletter',
+  name?: string,
+): Promise<void> => {
+  const normalized = normalizeEmail(email);
+  if (!isValidEmail(normalized)) return;
+
+  const status = subscribed ? 'subscribed' : 'unsubscribed';
+  await Subscriber.findOneAndUpdate(
+    { email: normalized },
+    {
+      $set: {
+        status,
+        ...(name ? { name } : {}),
+        ...(subscribed ? {} : { unsubscribedAt: new Date() }),
+      },
+      ...(subscribed ? { $unset: { unsubscribedAt: '' } } : {}),
+      $setOnInsert: { email: normalized, source },
+    },
+    { upsert: true, setDefaultsOnInsert: true },
+  ).exec();
+
+  await User.updateOne(
+    { email_address: normalized, role: 'user' },
+    { $set: { 'privacyPreferences.emailNotifications': subscribed } },
+  ).exec();
 };
 
 // Collectors may surface partial rows (a legacy record with no email); every

@@ -4,6 +4,7 @@ import {
   getProductSummary,
   getEligibility,
   getMyReview,
+  getReviewableProducts,
   createReview,
   updateMyReview,
   deleteMyReview,
@@ -34,6 +35,7 @@ router.delete('/review/admin/:id', adminMiddleware, authorize('review:moderate')
 // --- Authenticated customer ---
 router.get('/review/eligibility/:productId', userMiddleware, getEligibility);
 router.get('/review/mine/:productId', userMiddleware, getMyReview);
+router.get('/review/reviewable', userMiddleware, getReviewableProducts);
 router.post('/review/create', userMiddleware, validate(createReviewSchema), createReview);
 router.post('/review/:id/helpful', userMiddleware, markHelpful);
 router.patch('/review/:id', userMiddleware, validate(updateReviewSchema), updateMyReview);

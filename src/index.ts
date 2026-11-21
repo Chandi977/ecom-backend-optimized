@@ -194,6 +194,7 @@ const startServer = async (): Promise<void> => {
     );
 
     // Razorpay webhook — raw body before JSON parser
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { razorpayWebhook } = require("./modules/order/order.controller");
     app.use(LEGACY_API_PREFIX, apiVersionNegotiation);
     app.post(
@@ -388,6 +389,7 @@ const startServer = async (): Promise<void> => {
       logger.info(`Server is running on port ${PORT}`);
 
       // Schedule order cleanup every 5 minutes
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const cron = require("node-cron");
       cron.schedule("*/5 * * * *", async () => {
         if (mongoose.connection.readyState !== 1) {

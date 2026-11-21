@@ -2,6 +2,8 @@ import { Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import User from '../auth/auth.model';
 import Coupon from '../coupon/coupon.model';
+import Subscriber from '../marketing/subscriber.model';
+import { syncMarketingSubscription } from '../marketing/marketing.service';
 import { commonResponse } from '../../utils/response';
 import { validateEmail } from '../../utils/validators';
 import { hashPassword, comparePassword } from '../../utils/validators/password-hash';
@@ -434,9 +436,25 @@ export const specificuser = async (req: IAuthRequest, res: Response): Promise<vo
 
 export const getPrivacyPreferences = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
-    const user = await User.findById(req.user).select('privacyPreferences').exec();
+    const user = await User.findById(req.user).select('email_address privacyPreferences').exec();
     if (!user) { res.status(404).json(commonResponse('User not found', false)); return; }
-    res.status(200).json(commonResponse('Privacy preferences fetched', true, user.privacyPreferences));
+
+    // The marketing suppression list is authoritative for promo email opt-out
+    // (e.g. the customer used the unsubscribe link in an email). Reflect it in
+    // the profile toggle so the two views never disagree.
+    const subscriber = await Subscriber.findOne({ email: normalizeEmail(user.email_address) })
+      .select('status')
+      .lean()
+      .exec();
+    const stored = (user.privacyPreferences || {}) as Record<string, unknown>;
+    const emailNotifications = subscriber?.status === 'unsubscribed'
+      ? false
+      : stored.emailNotifications !== false;
+
+    res.status(200).json(commonResponse('Privacy preferences fetched', true, {
+      ...stored,
+      emailNotifications,
+    }));
   } catch (error) {
     res.status(500).json(commonResponse('Internal Server Error', false));
   }
@@ -452,8 +470,17 @@ export const updatePrivacyPreferences = async (req: IAuthRequest, res: Response)
     }
     if (Object.keys(update).length === 0) { res.status(400).json(commonResponse('No valid preferences provided', false)); return; }
 
-    const data = await User.findByIdAndUpdate(req.user, { $set: update }, { new: true, runValidators: true }).select('privacyPreferences').exec();
-    res.status(data ? 200 : 404).json(commonResponse(data ? 'Privacy preferences updated' : 'User not found', !!data, data?.privacyPreferences ?? undefined));
+    const data = await User.findByIdAndUpdate(req.user, { $set: update }, { new: true, runValidators: true }).select('email_address privacyPreferences').exec();
+    if (!data) { res.status(404).json(commonResponse('User not found', false)); return; }
+
+    // "Email notifications" is the profile-level control for promotional email.
+    // Mirror it onto the suppression list so campaign sends honour it, and clear
+    // any previous unsubscribe marker when the customer opts back in.
+    if (typeof req.body.emailNotifications === 'boolean') {
+      await syncMarketingSubscription(data.email_address, req.body.emailNotifications, 'manual');
+    }
+
+    res.status(200).json(commonResponse('Privacy preferences updated', true, data.privacyPreferences ?? undefined));
   } catch (error) {
     res.status(500).json(commonResponse('Internal Server Error', false));
   }

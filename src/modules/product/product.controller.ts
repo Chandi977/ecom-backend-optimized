@@ -1,3 +1,4 @@
+import { buildImageUploadKey } from '../../utils/image-upload-key';
 import { Response } from 'express';
 import mongoose from 'mongoose';
 import slugify from 'slugify';
@@ -184,9 +185,10 @@ const applyListOptions = (req: IAuthRequest, query: mongoose.Query<unknown, unkn
 export const uploadImage = async (req: IAuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.file) { res.status(400).json(commonResponse('No file uploaded', false)); return; }
-    await uploadToS3(req.file.originalname, req.file.buffer, req.file.mimetype);
-    const url = await getSignedUrlForKey(req.file.originalname, IMAGE_SIGN_OPTIONS);
-    res.status(201).json(commonResponse('image uploaded', true, { key: req.file.originalname, url }));
+    const key = buildImageUploadKey(req.file.originalname, req.body?.purpose, req.file.mimetype);
+    await uploadToS3(key, req.file.buffer, req.file.mimetype);
+    const url = await getSignedUrlForKey(key, IMAGE_SIGN_OPTIONS);
+    res.status(201).json(commonResponse('image uploaded', true, { key, url }));
   } catch (error) { res.status(500).json(commonResponse('Upload failed', false)); }
 };
 

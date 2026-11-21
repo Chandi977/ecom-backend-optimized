@@ -18,6 +18,8 @@ export interface IEmailCampaignDocument extends Document {
     // 'branded' = Prem header/footer wrapper + composed fields; 'custom' = full HTML.
     mode?: 'branded' | 'custom';
     html?: string;
+    blocks?: unknown[];
+    editorProject?: Record<string, unknown>;
     heading?: string;
     body?: string;
     imageUrl?: string;
@@ -37,11 +39,15 @@ export interface IEmailCampaignDocument extends Document {
 }
 
 const emailCampaignSchema = new Schema<IEmailCampaignDocument>({
-  subject: { type: String, required: true },
+  // Drafts may be saved before a subject is written, so this is not required at
+  // the schema level. sendCampaign still rejects a blank subject before sending.
+  subject: { type: String, default: '' },
   previewText: { type: String, default: '' },
   content: {
     mode: { type: String, enum: ['branded', 'custom'], default: 'branded' },
     html: { type: String, default: '' },
+    blocks: { type: [Schema.Types.Mixed], default: undefined },
+    editorProject: { type: Schema.Types.Mixed, default: undefined },
     heading: { type: String, default: '' },
     body: { type: String, default: '' },
     imageUrl: { type: String, default: '' },

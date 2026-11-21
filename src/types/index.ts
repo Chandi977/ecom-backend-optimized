@@ -496,6 +496,13 @@ export interface ICustomPackaging {
   email: string;
   phone: string;
   description: string;
+  company_name?: string;
+  product_category?: string;
+  moq?: string;
+  rich_text?: string;
+  contact_person_name?: string;
+  contact_person_email?: string;
+  contact_person_mobile_number?: string;
   createdAt: Date;
   updatedAt: Date;
 }

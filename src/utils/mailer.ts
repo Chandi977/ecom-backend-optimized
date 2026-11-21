@@ -1,3 +1,4 @@
+import { socialIconAttachments } from './email-social-icons';
 import nodemailer from 'nodemailer';
 import { config } from '../config';
 import { logger } from './logger';
@@ -48,6 +49,7 @@ export const sendEmail = async (options: {
       to: recipients,
       subject: options.subject,
       html: options.html,
+      attachments: socialIconAttachments(options.html),
     });
     logger.info('Email sent successfully', {
       to: recipients,
